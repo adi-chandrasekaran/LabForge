@@ -4,8 +4,12 @@
   "version": "0.0.1",
   "type": "module",
   "scripts": {
-    "build": "vite build",
-    "dev": "vite"
+    "backend:dev": ".venv/bin/python -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8017",
+    "backend:watch": ".venv/bin/python -m uvicorn backend.app.main:app --reload --host 127.0.0.1 --port 8017",
+    "backend:test": ".venv/bin/python -m pytest backend/tests",
+    "build": "vite build --configLoader runner",
+    "dev": "vite",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@emotion/react": "11.14.0",
@@ -67,6 +71,7 @@
     "react-dom": "18.3.1"
   },
   "devDependencies": {
+    "@playwright/test": "1.49.1",
     "@tailwindcss/vite": "4.1.12",
     "@vitejs/plugin-react": "4.7.0",
     "tailwindcss": "4.1.12",

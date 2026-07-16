@@ -1,5 +1,13 @@
 export type StepStatus = "complete" | "running" | "pending" | "error";
 
+export interface AttachmentRecord {
+  id: string;
+  filename: string;
+  contentType: string;
+  downloadUrl: string;
+  createdAt: string;
+}
+
 export interface IOItem {
   id: string;
   name: string;
@@ -28,9 +36,11 @@ export interface WorkflowStep {
   sublabel?: string;
   status: StepStatus;
   duration?: string;
+  procedureMarkdown?: string;
   inputs: IOItem[];
   parameters: Param[];
   outputs: IOItem[];
   notes?: string;
-  branchTrack?: BranchTrack;
+  attachments?: AttachmentRecord[];
+  branchTracks?: BranchTrack[];
 }

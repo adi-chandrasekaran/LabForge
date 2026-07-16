@@ -5,6 +5,7 @@ import WorkflowPage from "./pages/WorkflowPage";
 import ProjectsPage from "./pages/ProjectsPage";
 import ProfilePage from "./pages/ProfilePage";
 import CalculatorPage from "./pages/CalculatorPage";
+import DocsPage from "./pages/DocsPage";
 import TeamsPage from "./pages/TeamsPage";
 import AIModelPage from "./pages/AIModelPage";
 
@@ -16,6 +17,7 @@ export const router = createBrowserRouter([
       { index: true, Component: HomePage },
       { path: "workflow", Component: WorkflowPage },
       { path: "projects", Component: ProjectsPage },
+      { path: "docs", Component: DocsPage },
       { path: "profile", Component: ProfilePage },
       { path: "calculator", Component: CalculatorPage },
       { path: "teams", Component: TeamsPage },
