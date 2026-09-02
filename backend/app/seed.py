@@ -1009,10 +1009,8 @@ def _is_stale_demo_project(project: Project) -> bool:
 
 
 def _cleanup_stale_showcase_data(db: Session) -> None:
-    settings = get_settings()
-    strict_local_showcase = settings.app_mode == "local" or settings.auth_backend == "mock"
     for project in db.scalars(select(Project)).all():
-        if (strict_local_showcase and project.id not in SHOWCASE_PROJECT_IDS) or _is_stale_demo_project(project):
+        if _is_stale_demo_project(project):
             _delete_project_data(db, project)
 
 

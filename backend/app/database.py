@@ -43,6 +43,12 @@ def _apply_schema_updates() -> None:
             with engine.begin() as connection:
                 connection.execute(text("ALTER TABLE workflow_steps ADD COLUMN workflow_branch_id VARCHAR"))
 
+    if "workflows" in tables:
+        columns = {column["name"] for column in inspector.get_columns("workflows")}
+        if "project_id" not in columns:
+            with engine.begin() as connection:
+                connection.execute(text("ALTER TABLE workflows ADD COLUMN project_id VARCHAR"))
+
 
 configure_database()
 

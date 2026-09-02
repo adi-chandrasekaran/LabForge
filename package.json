@@ -4,8 +4,8 @@
   "version": "0.0.1",
   "type": "module",
   "scripts": {
-    "backend:dev": ".venv/bin/python -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8017",
-    "backend:watch": ".venv/bin/python -m uvicorn backend.app.main:app --reload --host 127.0.0.1 --port 8017",
+    "backend:dev": ".venv/bin/python -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000",
+    "backend:watch": ".venv/bin/python -m uvicorn backend.app.main:app --reload --host 127.0.0.1 --port 8000",
     "backend:test": ".venv/bin/python -m pytest backend/tests",
     "build": "vite build --configLoader runner",
     "dev": "vite",

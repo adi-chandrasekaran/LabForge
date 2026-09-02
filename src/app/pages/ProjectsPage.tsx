@@ -1,7 +1,18 @@
 import { useEffect, useMemo, useState } from "react";
-import { FolderOpen, Plus, Search, X } from "lucide-react";
+import { FolderOpen, Plus, Search, Trash2, UserCog, X } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
-import { createProject, fetchProjects, type ProjectRecord } from "../api";
+import ConfirmDialog from "../components/ConfirmDialog";
+import {
+  createProject,
+  deleteProject,
+  fetchLabMembers,
+  fetchProject,
+  fetchProjects,
+  updateProject,
+  type LabMemberRecord,
+  type ProjectMemberRecord,
+  type ProjectRecord,
+} from "../api";
 
 const STATUS_CFG: Record<string, { label: string; text: string; bg: string }> = {
   active: { label: "ACTIVE", text: "text-[#00c9a7]", bg: "bg-[#00c9a7]/10 border-[#00c9a7]/25" },
@@ -14,13 +25,26 @@ const FILTERS = ["ALL", "ACTIVE", "COMPLETE", "PAUSED", "ARCHIVED"] as const;
 
 export default function ProjectsPage() {
   const [projects, setProjects] = useState<ProjectRecord[]>([]);
+  const [labMembers, setLabMembers] = useState<LabMemberRecord[]>([]);
   const [filter, setFilter] = useState<typeof FILTERS[number]>("ALL");
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [newOpen, setNewOpen] = useState(false);
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<ProjectRecord | null>(null);
   const [form, setForm] = useState({ title: "", code: "", description: "", tags: "" });
+  const [detailForm, setDetailForm] = useState<{
+    id: string;
+    title: string;
+    code: string;
+    description: string;
+    status: string;
+    tags: string;
+    members: ProjectMemberRecord[];
+  } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -29,9 +53,10 @@ export default function ProjectsPage() {
       try {
         setLoading(true);
         setError(null);
-        const nextProjects = await fetchProjects();
+        const [nextProjects, nextLabMembers] = await Promise.all([fetchProjects(), fetchLabMembers()]);
         if (!cancelled) {
           setProjects(nextProjects);
+          setLabMembers(nextLabMembers);
         }
       } catch (loadError) {
         if (!cancelled) {
@@ -82,6 +107,90 @@ export default function ProjectsPage() {
       setSaving(false);
     }
   };
+
+  const openProjectDetail = async (projectId: string) => {
+    try {
+      setDetailLoading(true);
+      setError(null);
+      const project = await fetchProject(projectId);
+      setDetailForm({
+        id: project.id,
+        title: project.title,
+        code: project.code,
+        description: project.description,
+        status: project.status,
+        tags: project.tags.join(", "),
+        members: project.members,
+      });
+      setDetailOpen(true);
+    } catch (detailError) {
+      setError(detailError instanceof Error ? detailError.message : "Failed to load project detail");
+    } finally {
+      setDetailLoading(false);
+    }
+  };
+
+  const saveProjectDetail = async () => {
+    if (!detailForm) {
+      return;
+    }
+
+    try {
+      setSaving(true);
+      setError(null);
+      const updated = await updateProject(detailForm.id, {
+        title: detailForm.title,
+        description: detailForm.description,
+        status: detailForm.status,
+        tags: detailForm.tags.split(",").map((tag) => tag.trim()).filter(Boolean),
+        members: detailForm.members.map((member) => ({
+          userId: member.userId,
+          projectRole: member.projectRole,
+        })),
+      });
+      setProjects((current) => current.map((project) => (project.id === updated.id ? updated : project)));
+      setDetailForm({
+        id: updated.id,
+        title: updated.title,
+        code: updated.code,
+        description: updated.description,
+        status: updated.status,
+        tags: updated.tags.join(", "),
+        members: updated.members,
+      });
+      setDetailOpen(false);
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Failed to update project");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const confirmDeleteProject = async () => {
+    if (!deleteTarget) {
+      return;
+    }
+
+    try {
+      setSaving(true);
+      setError(null);
+      await deleteProject(deleteTarget.id);
+      setProjects((current) => current.filter((project) => project.id !== deleteTarget.id));
+      if (detailForm?.id === deleteTarget.id) {
+        setDetailOpen(false);
+        setDetailForm(null);
+      }
+      setDeleteTarget(null);
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : "Failed to delete project");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const availableMembers = detailForm
+    ? labMembers.filter((member) => !detailForm.members.some((projectMember) => projectMember.userId === member.id))
+    : [];
 
   const inputCls =
     "w-full bg-secondary border border-border text-[11px] font-mono text-foreground rounded-sm px-2 py-1.5 focus:outline-none focus:border-[#00c9a7]/50";
@@ -154,7 +263,11 @@ export default function ProjectsPage() {
           {filtered.map((project) => {
             const status = STATUS_CFG[project.status] ?? STATUS_CFG.active;
             return (
-              <div key={project.id} className="border border-border bg-card rounded-sm p-4 hover:bg-secondary transition-colors flex flex-col gap-3">
+              <div
+                key={project.id}
+                className="border border-border bg-card rounded-sm p-4 hover:bg-secondary transition-colors flex flex-col gap-3 cursor-pointer"
+                onClick={() => void openProjectDetail(project.id)}
+              >
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <div className="text-[11px] font-mono text-foreground font-medium leading-snug">{project.title}</div>
@@ -162,9 +275,22 @@ export default function ProjectsPage() {
                       {project.code} · Owner: {project.ownerDisplayName ?? "Unassigned"}
                     </div>
                   </div>
-                  <span className={`flex-shrink-0 text-[8px] font-mono tracking-wider border px-1.5 py-0.5 rounded-sm ${status.bg} ${status.text}`}>
-                    {status.label}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setDeleteTarget(project);
+                      }}
+                      className="flex h-6 w-6 items-center justify-center rounded-sm border border-transparent text-muted-foreground transition-colors hover:border-red-400/30 hover:bg-red-500/10 hover:text-red-300"
+                      aria-label={`Delete project ${project.title}`}
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                    <span className={`flex-shrink-0 text-[8px] font-mono tracking-wider border px-1.5 py-0.5 rounded-sm ${status.bg} ${status.text}`}>
+                      {status.label}
+                    </span>
+                  </div>
                 </div>
 
                 <p className="text-[10px] font-mono text-muted-foreground leading-relaxed line-clamp-3">
@@ -274,6 +400,257 @@ export default function ProjectsPage() {
           </Dialog.Content>
         </Dialog.Portal>
       </Dialog.Root>
+
+      <Dialog.Root open={detailOpen} onOpenChange={setDetailOpen}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 bg-black/50 z-50" />
+          <Dialog.Content
+            className="fixed top-1/2 left-1/2 z-50 max-h-[88vh] w-[760px] max-w-[95vw] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-sm border border-border bg-background p-5 shadow-2xl"
+            style={{ fontFamily: "'JetBrains Mono', monospace" }}
+          >
+            <div className="mb-4 flex items-center justify-between">
+              <div>
+                <div className="text-[9px] font-mono tracking-widest text-muted-foreground">PROJECT DETAIL</div>
+                <div className="text-sm font-mono font-medium text-foreground">
+                  {detailLoading ? "Loading..." : detailForm?.title ?? "Project"}
+                </div>
+              </div>
+              <button type="button" onClick={() => setDetailOpen(false)}>
+                <X className="h-3.5 w-3.5 text-muted-foreground" />
+              </button>
+            </div>
+
+            {detailForm && !detailLoading && (
+              <div className="space-y-5">
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                  <div>
+                    <div className="mb-1 text-[9px] font-mono tracking-widest text-muted-foreground">PROJECT NAME</div>
+                    <input
+                      className={inputCls}
+                      value={detailForm.title}
+                      onChange={(event) =>
+                        setDetailForm((current) => current ? { ...current, title: event.target.value } : current)
+                      }
+                    />
+                  </div>
+                  <div>
+                    <div className="mb-1 text-[9px] font-mono tracking-widest text-muted-foreground">PROJECT CODE</div>
+                    <input className={inputCls} value={detailForm.code} disabled />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-[minmax(0,1fr)_180px]">
+                  <div>
+                    <div className="mb-1 text-[9px] font-mono tracking-widest text-muted-foreground">DESCRIPTION / NOTES</div>
+                    <textarea
+                      className={inputCls + " min-h-[110px] resize-none"}
+                      value={detailForm.description}
+                      onChange={(event) =>
+                        setDetailForm((current) => current ? { ...current, description: event.target.value } : current)
+                      }
+                    />
+                  </div>
+                  <div className="space-y-3">
+                    <div>
+                      <div className="mb-1 text-[9px] font-mono tracking-widest text-muted-foreground">STATUS</div>
+                      <select
+                        className={inputCls}
+                        value={detailForm.status}
+                        onChange={(event) =>
+                          setDetailForm((current) => current ? { ...current, status: event.target.value } : current)
+                        }
+                      >
+                        <option value="active">active</option>
+                        <option value="complete">complete</option>
+                        <option value="paused">paused</option>
+                        <option value="archived">archived</option>
+                      </select>
+                    </div>
+                    <div>
+                      <div className="mb-1 text-[9px] font-mono tracking-widest text-muted-foreground">TAGS</div>
+                      <input
+                        className={inputCls}
+                        value={detailForm.tags}
+                        onChange={(event) =>
+                          setDetailForm((current) => current ? { ...current, tags: event.target.value } : current)
+                        }
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="rounded-sm border border-border bg-card p-4">
+                  <div className="mb-3 flex items-center gap-2">
+                    <UserCog className="h-3.5 w-3.5 text-[#00c9a7]" />
+                    <div className="text-[10px] font-mono text-foreground">PROJECT ACCESS</div>
+                  </div>
+                  <div className="space-y-2">
+                    {detailForm.members.map((member) => (
+                      <div key={member.userId} className="grid grid-cols-[minmax(0,1fr)_130px_32px] gap-2 rounded-sm border border-border bg-background px-3 py-2">
+                        <div className="min-w-0">
+                          <div className="truncate text-[10px] font-mono text-foreground">{member.displayName}</div>
+                          <div className="truncate text-[8px] font-mono text-muted-foreground">
+                            {member.email} · {member.labRole}
+                          </div>
+                        </div>
+                        <select
+                          disabled={member.projectRole === "owner"}
+                          className={inputCls + " h-[30px]"}
+                          value={member.projectRole}
+                          onChange={(event) =>
+                            setDetailForm((current) =>
+                              current
+                                ? {
+                                    ...current,
+                                    members: current.members.map((currentMember) =>
+                                      currentMember.userId === member.userId
+                                        ? { ...currentMember, projectRole: event.target.value }
+                                        : currentMember,
+                                    ),
+                                  }
+                                : current
+                            )
+                          }
+                        >
+                          <option value="owner">owner</option>
+                          <option value="editor">editor</option>
+                          <option value="commenter">commenter</option>
+                          <option value="viewer">viewer</option>
+                        </select>
+                        <button
+                          type="button"
+                          disabled={member.projectRole === "owner"}
+                          onClick={() =>
+                            setDetailForm((current) =>
+                              current
+                                ? {
+                                    ...current,
+                                    members: current.members.filter((currentMember) => currentMember.userId !== member.userId),
+                                  }
+                                : current
+                            )
+                          }
+                          className="flex h-[30px] items-center justify-center rounded-sm border border-transparent text-muted-foreground transition-colors hover:border-red-400/30 hover:bg-red-500/10 hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-30"
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+
+                  {availableMembers.length > 0 && (
+                    <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-border pt-3">
+                      <select
+                        className={inputCls + " max-w-[280px]"}
+                        defaultValue=""
+                        onChange={(event) => {
+                          const userId = event.target.value;
+                          if (!userId) {
+                            return;
+                          }
+                          const member = labMembers.find((candidate) => candidate.id === userId);
+                          if (!member) {
+                            return;
+                          }
+                          setDetailForm((current) =>
+                            current
+                              ? {
+                                  ...current,
+                                  members: [
+                                    ...current.members,
+                                    {
+                                      userId: member.id,
+                                      displayName: member.displayName,
+                                      email: member.email,
+                                      labRole: member.role,
+                                      projectRole: "viewer",
+                                    },
+                                  ],
+                                }
+                              : current
+                          );
+                          event.target.value = "";
+                        }}
+                      >
+                        <option value="">Add lab member...</option>
+                        {availableMembers.map((member) => (
+                          <option key={member.id} value={member.id}>
+                            {member.displayName} · {member.role}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex items-center justify-between gap-3 pt-1">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setDeleteTarget(
+                        projects.find((project) => project.id === detailForm.id) ?? {
+                          id: detailForm.id,
+                          title: detailForm.title,
+                          code: detailForm.code,
+                          description: detailForm.description,
+                          status: detailForm.status,
+                          tags: detailForm.tags.split(",").map((tag) => tag.trim()).filter(Boolean),
+                          ownerDisplayName: undefined,
+                          experimentCount: 0,
+                          workflowCount: 0,
+                          progressPercent: 0,
+                          members: detailForm.members,
+                          createdAt: "",
+                          updatedAt: "",
+                        },
+                      )
+                    }
+                    className="flex items-center gap-2 rounded-sm border border-red-400/25 bg-red-500/10 px-3 py-1.5 text-[10px] font-mono text-red-300 transition-colors hover:bg-red-500/15"
+                  >
+                    <Trash2 className="h-3 w-3" />
+                    DELETE PROJECT
+                  </button>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setDetailOpen(false)}
+                      className="rounded-sm border border-border px-3 py-1.5 text-[10px] font-mono text-muted-foreground transition-colors hover:bg-secondary"
+                    >
+                      CLOSE
+                    </button>
+                    <button
+                      type="button"
+                      disabled={saving}
+                      onClick={() => void saveProjectDetail()}
+                      className="rounded-sm border border-[#00c9a7] bg-[#00c9a7] px-3 py-1.5 text-[10px] font-mono font-semibold text-[#080c12] transition-colors hover:bg-[#00b899] disabled:opacity-40"
+                    >
+                      {saving ? "SAVING..." : "SAVE PROJECT"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+
+      <ConfirmDialog
+        open={!!deleteTarget}
+        title="Delete project?"
+        description={
+          deleteTarget
+            ? `Delete ${deleteTarget.title}. This removes the project record and its local association data. This cannot be undone.`
+            : ""
+        }
+        confirmLabel="DELETE PROJECT"
+        busy={saving}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDeleteTarget(null);
+          }
+        }}
+        onConfirm={() => void confirmDeleteProject()}
+      />
     </div>
   );
 }

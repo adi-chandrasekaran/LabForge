@@ -1,6 +1,6 @@
 import type { AttachmentRecord, IOItem, Param, StepStatus, WorkflowStep } from "./types";
 
-const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined) || "http://127.0.0.1:8017/api/v1";
+const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined) || "http://127.0.0.1:8000/api/v1";
 const API_ROOT = API_BASE.replace(/\/api\/v1$/, "");
 const SYNC_REFRESH_EVENT = "nmr-lab-sync-refresh";
 
@@ -25,8 +25,34 @@ interface ApiProject {
   experiment_count: number;
   workflow_count: number;
   progress_percent: number;
+  members: ApiProjectMember[];
   created_at: string;
   updated_at: string;
+}
+
+interface ApiProjectMember {
+  user_id: string;
+  display_name: string;
+  email: string;
+  lab_role: string;
+  project_role: string;
+}
+
+interface ApiWorkflowMember {
+  user_id: string;
+  display_name: string;
+  email: string;
+  lab_role: string;
+  workflow_role: string;
+}
+
+interface ApiLabMember {
+  id: string;
+  email: string;
+  display_name: string;
+  role: string;
+  lab_id: string;
+  created_at: string;
 }
 
 interface ApiExternalDocSummary {
@@ -228,10 +254,12 @@ interface ApiWorkflow {
   title: string;
   description: string;
   owner_id?: string | null;
+  project_id?: string | null;
   visibility: string;
   library_state: string;
   version: number;
   tags: string[];
+  members: ApiWorkflowMember[];
   steps: ApiWorkflowStep[];
 }
 
@@ -302,8 +330,47 @@ export interface ProjectRecord {
   experimentCount: number;
   workflowCount: number;
   progressPercent: number;
+  members: ProjectMemberRecord[];
   createdAt: string;
   updatedAt: string;
+}
+
+export interface ProjectMemberRecord {
+  userId: string;
+  displayName: string;
+  email: string;
+  labRole: string;
+  projectRole: string;
+}
+
+export interface LabMemberRecord {
+  id: string;
+  email: string;
+  displayName: string;
+  role: string;
+  labId: string;
+  createdAt: string;
+}
+
+export interface WorkflowMemberRecord {
+  userId: string;
+  displayName: string;
+  email: string;
+  labRole: string;
+  workflowRole: string;
+}
+
+export interface WorkflowRecord {
+  id: string;
+  title: string;
+  description: string;
+  projectId?: string;
+  visibility: string;
+  libraryState: string;
+  version: number;
+  tags: string[];
+  members: WorkflowMemberRecord[];
+  steps: WorkflowStep[];
 }
 
 export interface ExternalDocSummaryRecord {
@@ -536,8 +603,47 @@ function toProjectRecord(project: ApiProject): ProjectRecord {
     experimentCount: project.experiment_count,
     workflowCount: project.workflow_count,
     progressPercent: project.progress_percent,
+    members: project.members.map((member) => ({
+      userId: member.user_id,
+      displayName: member.display_name,
+      email: member.email,
+      labRole: member.lab_role,
+      projectRole: member.project_role,
+    })),
     createdAt: project.created_at,
     updatedAt: project.updated_at,
+  };
+}
+
+function toLabMemberRecord(member: ApiLabMember): LabMemberRecord {
+  return {
+    id: member.id,
+    email: member.email,
+    displayName: member.display_name,
+    role: member.role,
+    labId: member.lab_id,
+    createdAt: member.created_at,
+  };
+}
+
+function toWorkflowRecord(workflow: ApiWorkflow): WorkflowRecord {
+  return {
+    id: workflow.id,
+    title: workflow.title,
+    description: workflow.description,
+    projectId: workflow.project_id ?? undefined,
+    visibility: workflow.visibility,
+    libraryState: workflow.library_state,
+    version: workflow.version,
+    tags: workflow.tags,
+    members: workflow.members.map((member) => ({
+      userId: member.user_id,
+      displayName: member.display_name,
+      email: member.email,
+      labRole: member.lab_role,
+      workflowRole: member.workflow_role,
+    })),
+    steps: workflow.steps.map(toUiStep),
   };
 }
 
@@ -805,6 +911,27 @@ export async function fetchAnc2WorkflowPageData(): Promise<WorkflowPageData> {
   return toWorkflowPageData(workflows);
 }
 
+export async function fetchWorkflows(filters?: {
+  tag?: string;
+  libraryState?: string;
+  visibility?: string;
+  projectId?: string;
+}): Promise<WorkflowRecord[]> {
+  const params = new URLSearchParams();
+  if (filters?.tag) params.set("tag", filters.tag);
+  if (filters?.libraryState) params.set("library_state", filters.libraryState);
+  if (filters?.visibility) params.set("visibility", filters.visibility);
+  if (filters?.projectId) params.set("project_id", filters.projectId);
+  const query = params.toString();
+  const workflows = await request<ApiWorkflow[]>(`/workflows${query ? `?${query}` : ""}`);
+  return workflows.map(toWorkflowRecord);
+}
+
+export async function fetchWorkflow(workflowId: string): Promise<WorkflowRecord> {
+  const workflow = await request<ApiWorkflow>(`/workflows/${workflowId}`);
+  return toWorkflowRecord(workflow);
+}
+
 export async function fetchCurrentUser(): Promise<UserRecord> {
   const user = await request<ApiUser>("/me");
   return toUserRecord(user);
@@ -813,6 +940,11 @@ export async function fetchCurrentUser(): Promise<UserRecord> {
 export async function fetchProjects(): Promise<ProjectRecord[]> {
   const projects = await request<ApiProject[]>("/projects");
   return projects.map(toProjectRecord);
+}
+
+export async function fetchProject(projectId: string): Promise<ProjectRecord> {
+  const project = await request<ApiProject>(`/projects/${projectId}`);
+  return toProjectRecord(project);
 }
 
 export async function createProject(payload: {
@@ -833,6 +965,72 @@ export async function createProject(payload: {
     }),
   });
   return toProjectRecord(project);
+}
+
+export async function createWorkflow(payload: {
+  title: string;
+  description?: string;
+  projectId?: string;
+  visibility?: string;
+  libraryState?: string;
+  version?: number;
+  tags?: string[];
+  members?: Array<{ userId: string; workflowRole: string }>;
+}): Promise<WorkflowRecord> {
+  const workflow = await request<ApiWorkflow>("/workflows", {
+    method: "POST",
+    body: JSON.stringify({
+      title: payload.title,
+      description: payload.description ?? "",
+      project_id: payload.projectId ?? null,
+      visibility: payload.visibility ?? "private",
+      library_state: payload.libraryState ?? "draft",
+      version: payload.version ?? 1,
+      tags: payload.tags ?? [],
+      members: payload.members?.map((member) => ({
+        user_id: member.userId,
+        role: member.workflowRole,
+      })),
+    }),
+  });
+  return toWorkflowRecord(workflow);
+}
+
+export async function updateProject(
+  projectId: string,
+  payload: {
+    title?: string;
+    description?: string;
+    status?: string;
+    tags?: string[];
+    members?: Array<{ userId: string; projectRole: string }>;
+  },
+): Promise<ProjectRecord> {
+  const project = await request<ApiProject>(`/projects/${projectId}`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      title: payload.title,
+      description: payload.description,
+      status: payload.status,
+      tags: payload.tags,
+      members: payload.members?.map((member) => ({
+        user_id: member.userId,
+        role: member.projectRole,
+      })),
+    }),
+  });
+  return toProjectRecord(project);
+}
+
+export async function deleteProject(projectId: string): Promise<void> {
+  await request<void>(`/projects/${projectId}`, {
+    method: "DELETE",
+  });
+}
+
+export async function fetchLabMembers(): Promise<LabMemberRecord[]> {
+  const members = await request<ApiLabMember[]>("/users/lab-members");
+  return members.map(toLabMemberRecord);
 }
 
 export async function fetchExternalDocs(): Promise<ExternalDocSummaryRecord[]> {
@@ -889,6 +1087,12 @@ export async function fetchChatChannels(): Promise<ChatChannelRecord[]> {
   return channels.map(toChatChannelRecord);
 }
 
+export async function deleteChatChannel(channelId: string): Promise<void> {
+  await request<void>(`/channels/${channelId}`, {
+    method: "DELETE",
+  });
+}
+
 export async function createChatChannel(payload: {
   name: string;
   topic?: string;
@@ -927,6 +1131,12 @@ export async function createChatMessage(
   return toChatMessageRecord(message);
 }
 
+export async function deleteChatMessage(channelId: string, messageId: string): Promise<void> {
+  await request<void>(`/channels/${channelId}/messages/${messageId}`, {
+    method: "DELETE",
+  });
+}
+
 export async function uploadChatMessageAttachment(
   channelId: string,
   messageId: string,
@@ -942,7 +1152,7 @@ export async function uploadChatMessageAttachment(
 }
 
 export async function fetchWorkflowReferenceOptions(): Promise<ReferenceOptionRecord[]> {
-  const workflows = await request<ApiWorkflow[]>("/workflows");
+  const workflows = await fetchWorkflows();
   return workflows.map((workflow) => ({
     id: workflow.id,
     label: workflow.title,
@@ -1002,6 +1212,12 @@ export async function instantiateExperiment(payload: {
     }),
   });
   return toExperimentRecord(experiment);
+}
+
+export async function deleteExperiment(experimentId: string): Promise<void> {
+  await request<void>(`/experiments/${experimentId}`, {
+    method: "DELETE",
+  });
 }
 
 export async function updateExperimentStepRun(
@@ -1090,6 +1306,13 @@ export async function updateWorkflowStep(workflowId: string, step: WorkflowStep)
   return workflow.steps.map(toUiStep);
 }
 
+export async function deleteWorkflowStep(workflowId: string, stepId: string): Promise<WorkflowStep[]> {
+  const workflow = await request<ApiWorkflow>(`/workflows/${workflowId}/steps/${stepId}`, {
+    method: "DELETE",
+  });
+  return workflow.steps.map(toUiStep);
+}
+
 export async function createWorkflowBranch(
   workflowId: string,
   anchorStepId: string,
@@ -1098,6 +1321,13 @@ export async function createWorkflowBranch(
   const workflow = await request<ApiWorkflow>(`/workflows/${workflowId}/branches`, {
     method: "POST",
     body: JSON.stringify({ anchor_step_id: anchorStepId, label }),
+  });
+  return workflow.steps.map(toUiStep);
+}
+
+export async function deleteWorkflowBranch(workflowId: string, branchId: string): Promise<WorkflowStep[]> {
+  const workflow = await request<ApiWorkflow>(`/workflows/${workflowId}/branches/${branchId}`, {
+    method: "DELETE",
   });
   return workflow.steps.map(toUiStep);
 }
@@ -1112,4 +1342,89 @@ export async function createWorkflowBranchStep(
     body: JSON.stringify(toStepPayload(payload)),
   });
   return workflow.steps.map(toUiStep);
+}
+
+export async function insertStandardizedWorkflow(
+  workflowId: string,
+  payload: {
+    standardizedWorkflowId: string;
+    afterStepId?: string | null;
+    anchorStepId?: string | null;
+    branchLabel?: string | null;
+  },
+): Promise<WorkflowStep[]> {
+  const workflow = await request<ApiWorkflow>(`/workflows/${workflowId}/insert-standardized`, {
+    method: "POST",
+    body: JSON.stringify({
+      standardized_workflow_id: payload.standardizedWorkflowId,
+      after_step_id: payload.afterStepId ?? null,
+      anchor_step_id: payload.anchorStepId ?? null,
+      branch_label: payload.branchLabel ?? null,
+    }),
+  });
+  return workflow.steps.map(toUiStep);
+}
+
+export async function standardizeWorkflow(
+  workflowId: string,
+  payload: {
+    title: string;
+    description?: string;
+    tags?: string[];
+  },
+): Promise<WorkflowRecord> {
+  const workflow = await request<ApiWorkflow>(`/workflows/${workflowId}/standardize`, {
+    method: "POST",
+    body: JSON.stringify({
+      title: payload.title,
+      description: payload.description ?? "",
+      tags: payload.tags ?? [],
+    }),
+  });
+  return toWorkflowRecord(workflow);
+}
+
+export async function updateWorkflow(
+  workflowId: string,
+  payload: {
+    title?: string;
+    description?: string;
+    visibility?: string;
+    libraryState?: string;
+    version?: number;
+    projectId?: string | null;
+    tags?: string[];
+    members?: Array<{ userId: string; workflowRole: string }>;
+  },
+): Promise<WorkflowRecord> {
+  const workflow = await request<ApiWorkflow>(`/workflows/${workflowId}`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      title: payload.title,
+      description: payload.description,
+      visibility: payload.visibility,
+      library_state: payload.libraryState,
+      version: payload.version,
+      project_id: payload.projectId,
+      tags: payload.tags,
+      members: payload.members?.map((member) => ({
+        user_id: member.userId,
+        role: member.workflowRole,
+      })),
+    }),
+  });
+  return toWorkflowRecord(workflow);
+}
+
+export async function deleteWorkflow(workflowId: string): Promise<void> {
+  await request<void>(`/workflows/${workflowId}`, {
+    method: "DELETE",
+  });
+}
+
+export async function publishWorkflow(workflowId: string): Promise<WorkflowRecord> {
+  const workflow = await request<ApiWorkflow>(`/workflows/${workflowId}/publish`, {
+    method: "POST",
+  });
+  return toWorkflowRecord(workflow);
 }
