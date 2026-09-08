@@ -14,6 +14,13 @@ class UserRole(str, Enum):
     intern = "intern"
 
 
+class AccessRole(str, Enum):
+    owner = "owner"
+    editor = "editor"
+    commenter = "commenter"
+    viewer = "viewer"
+
+
 class LibraryState(str, Enum):
     draft = "draft"
     published = "published"
@@ -53,6 +60,17 @@ class Project(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
+class ProjectMember(Base):
+    __tablename__ = "project_members"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    role: Mapped[str] = mapped_column(String, default=AccessRole.viewer.value)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
 class Workflow(Base):
     __tablename__ = "workflows"
 
@@ -60,6 +78,7 @@ class Workflow(Base):
     title: Mapped[str] = mapped_column(String, index=True)
     description: Mapped[str] = mapped_column(Text, default="")
     owner_id: Mapped[Optional[str]] = mapped_column(ForeignKey("users.id"), nullable=True)
+    project_id: Mapped[Optional[str]] = mapped_column(ForeignKey("projects.id"), nullable=True, index=True)
     visibility: Mapped[str] = mapped_column(String, default="private")
     library_state: Mapped[str] = mapped_column(String, default=LibraryState.draft.value)
     version: Mapped[int] = mapped_column(Integer, default=1)
@@ -69,6 +88,17 @@ class Workflow(Base):
 
     steps: Mapped[list["WorkflowStep"]] = relationship(back_populates="workflow", cascade="all, delete-orphan")
     branches: Mapped[list["WorkflowBranch"]] = relationship(back_populates="workflow", cascade="all, delete-orphan")
+
+
+class WorkflowMember(Base):
+    __tablename__ = "workflow_members"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    workflow_id: Mapped[str] = mapped_column(ForeignKey("workflows.id"), index=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    role: Mapped[str] = mapped_column(String, default=AccessRole.viewer.value)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
 class WorkflowBranch(Base):

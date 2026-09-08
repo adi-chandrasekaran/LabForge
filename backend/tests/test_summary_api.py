@@ -4,7 +4,7 @@ def test_home_summary_returns_seeded_overview(client) -> None:
     payload = response.json()
 
     assert payload["user_display_name"] == "Chen, Y."
-    assert payload["protocol_count"] == 2
+    assert payload["protocol_count"] == 6
     assert payload["project_count"] >= 1
     assert any(project["id"] == "project-anc2" for project in payload["recent_projects"])
 

@@ -15,6 +15,7 @@ from .project_routes import router as project_router
 from .schemas import HealthResponse, UserRead
 from .summary_routes import router as summary_router
 from .sync_routes import router as sync_router
+from .user_routes import router as user_router
 from .workflow_routes import router as workflow_router
 
 
@@ -37,6 +38,7 @@ app.include_router(experiment_router)
 app.include_router(attachment_router)
 app.include_router(chat_router)
 app.include_router(project_router)
+app.include_router(user_router)
 app.include_router(docs_router)
 app.include_router(summary_router)
 app.include_router(sync_router)

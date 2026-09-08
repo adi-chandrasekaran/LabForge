@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
-import { Hash, ImagePlus, MessageSquare, Plus, Send, Users, X } from "lucide-react";
+import { Hash, ImagePlus, MessageSquare, Plus, Send, Trash2, Users, X } from "lucide-react";
+import ConfirmDialog from "../components/ConfirmDialog";
 import {
   createChatChannel,
   createChatMessage,
+  deleteChatChannel,
+  deleteChatMessage,
   fetchChatChannels,
   fetchChatMessages,
   fetchExperimentReferenceOptions,
@@ -41,6 +44,7 @@ export default function TeamsPage() {
   const [channelDialogOpen, setChannelDialogOpen] = useState(false);
   const [creatingChannel, setCreatingChannel] = useState(false);
   const [sendingMessage, setSendingMessage] = useState(false);
+  const [deleteBusy, setDeleteBusy] = useState(false);
   const [channelForm, setChannelForm] = useState({ name: "", topic: "" });
   const [messageForm, setMessageForm] = useState({
     body: "",
@@ -48,6 +52,11 @@ export default function TeamsPage() {
     experimentId: "",
   });
   const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<
+    | { kind: "channel"; channel: ChatChannelRecord }
+    | { kind: "message"; message: ChatMessageRecord }
+    | null
+  >(null);
 
   const selectedChannel = useMemo(
     () => channels.find((channel) => channel.id === selectedChannelId) ?? null,
@@ -185,6 +194,57 @@ export default function TeamsPage() {
     }
   }
 
+  async function handleDeleteTarget() {
+    if (!deleteTarget) {
+      return;
+    }
+
+    try {
+      setDeleteBusy(true);
+      setError(null);
+
+      if (deleteTarget.kind === "channel") {
+        await deleteChatChannel(deleteTarget.channel.id);
+        const nextChannels = channels.filter((channel) => channel.id !== deleteTarget.channel.id);
+        setChannels(nextChannels);
+        setSelectedChannelId((current) => {
+          if (current !== deleteTarget.channel.id) {
+            return current;
+          }
+          return nextChannels[0]?.id ?? null;
+        });
+        if (selectedChannelId === deleteTarget.channel.id) {
+          setMessages([]);
+        }
+      } else {
+        if (!selectedChannelId) {
+          throw new Error("Channel context is missing");
+        }
+        await deleteChatMessage(selectedChannelId, deleteTarget.message.id);
+        setMessages((current) => current.filter((message) => message.id !== deleteTarget.message.id));
+        setChannels((current) =>
+          current.map((channel) =>
+            channel.id === selectedChannelId
+              ? {
+                  ...channel,
+                  messageCount: Math.max(0, channel.messageCount - 1),
+                  lastMessagePreview:
+                    channel.lastMessagePreview === deleteTarget.message.body.slice(0, 120)
+                      ? undefined
+                      : channel.lastMessagePreview,
+                }
+              : channel,
+          ),
+        );
+      }
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : "Failed to delete item");
+    } finally {
+      setDeleteBusy(false);
+      setDeleteTarget(null);
+    }
+  }
+
   return (
     <div className="min-h-full bg-background px-7 py-7" style={{ fontFamily: "'JetBrains Mono', monospace" }}>
       <div className="flex items-start justify-between gap-4 mb-6 flex-wrap">
@@ -236,19 +296,21 @@ export default function TeamsPage() {
               channels.map((channel) => {
                 const active = channel.id === selectedChannelId;
                 return (
-                  <button
+                  <div
                     key={channel.id}
-                    type="button"
-                    onClick={() => setSelectedChannelId(channel.id)}
-                    data-testid={`channel-${channel.id}`}
-                    className={`w-full text-left border rounded-sm px-3 py-3 transition-colors ${
+                    className={`group w-full border rounded-sm px-3 py-3 transition-colors ${
                       active
                         ? "border-[#00c9a7]/30 bg-[#00c9a7]/10"
                         : "border-border bg-background hover:bg-secondary"
                     }`}
                   >
                     <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedChannelId(channel.id)}
+                        data-testid={`channel-${channel.id}`}
+                        className="min-w-0 flex-1 text-left"
+                      >
                         <div className="flex items-center gap-2 text-[11px] font-mono text-foreground">
                           <Hash className="w-3 h-3 text-[#00c9a7]" />
                           <span className="truncate">{channel.name}</span>
@@ -256,13 +318,23 @@ export default function TeamsPage() {
                         <div className="text-[9px] font-mono text-muted-foreground mt-1 line-clamp-2">
                           {channel.topic || "No topic set."}
                         </div>
+                      </button>
+                      <div className="flex items-start gap-2">
+                        <div className="pt-0.5 text-[8px] font-mono text-muted-foreground">{channel.messageCount}</div>
+                        <button
+                          type="button"
+                          onClick={() => setDeleteTarget({ kind: "channel", channel })}
+                          className="flex h-6 w-6 items-center justify-center rounded-sm border border-transparent text-muted-foreground opacity-0 transition-all hover:border-red-400/30 hover:bg-red-500/10 hover:text-red-300 group-hover:opacity-100"
+                          aria-label={`Delete channel ${channel.name}`}
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </button>
                       </div>
-                      <div className="text-[8px] font-mono text-muted-foreground">{channel.messageCount}</div>
                     </div>
                     <div className="text-[8px] font-mono text-muted-foreground mt-2">
                       {formatTimestamp(channel.lastMessageAt)}
                     </div>
-                  </button>
+                  </div>
                 );
               })
             )}
@@ -299,7 +371,7 @@ export default function TeamsPage() {
               </div>
             ) : (
               messages.map((message) => (
-                <article key={message.id} className="border border-border rounded-sm bg-background px-4 py-3">
+                <article key={message.id} className="group border border-border rounded-sm bg-background px-4 py-3">
                   <div className="flex items-start justify-between gap-3 mb-2">
                     <div>
                       <div className="text-[10px] font-mono text-foreground">
@@ -323,6 +395,14 @@ export default function TeamsPage() {
                         )}
                       </div>
                     )}
+                    <button
+                      type="button"
+                      onClick={() => setDeleteTarget({ kind: "message", message })}
+                      className="flex h-6 w-6 items-center justify-center rounded-sm border border-transparent text-muted-foreground opacity-0 transition-all hover:border-red-400/30 hover:bg-red-500/10 hover:text-red-300 group-hover:opacity-100"
+                      aria-label={`Delete message from ${message.authorDisplayName || "Unknown author"}`}
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </button>
                   </div>
 
                   <p className="text-[10px] font-mono text-foreground/90 whitespace-pre-wrap leading-relaxed">
@@ -485,6 +565,26 @@ export default function TeamsPage() {
           </Dialog.Content>
         </Dialog.Portal>
       </Dialog.Root>
+      <ConfirmDialog
+        open={!!deleteTarget}
+        title={deleteTarget?.kind === "channel" ? "Delete channel?" : "Delete message?"}
+        description={
+          deleteTarget?.kind === "channel"
+            ? `This will permanently delete #${deleteTarget.channel.name} and its saved discussion history.`
+            : deleteTarget
+              ? "This will permanently delete the selected message."
+              : ""
+        }
+        confirmLabel="Delete"
+        destructive
+        busy={deleteBusy}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDeleteTarget(null);
+          }
+        }}
+        onConfirm={() => void handleDeleteTarget()}
+      />
     </div>
   );
 }

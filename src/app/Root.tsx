@@ -17,6 +17,7 @@ const NAV = [
   { path: "/", label: "HOME", icon: Home },
   { path: "/projects", label: "PROJECTS", icon: FolderOpen },
   { path: "/workflow", label: "WORKFLOW", icon: GitBranch },
+  { path: "/standardized-workflows", label: "STANDARDIZED", icon: BookOpen },
   { path: "/calculator", label: "CALCULATOR", icon: Calculator },
   { path: "/docs", label: "DOCS", icon: BookOpen },
   { path: "/profile", label: "PROFILE", icon: User },

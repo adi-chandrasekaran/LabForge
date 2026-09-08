@@ -50,19 +50,23 @@ class WorkflowStepBase(BaseModel):
 class WorkflowCreate(BaseModel):
     title: str
     description: str = ""
+    project_id: Optional[str] = None
     visibility: str = "private"
     library_state: str = "draft"
     version: int = 1
     tags: list[str] = Field(default_factory=list)
+    members: Optional[list["WorkflowMemberWrite"]] = None
 
 
 class WorkflowUpdate(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
+    project_id: Optional[str] = None
     visibility: Optional[str] = None
     library_state: Optional[str] = None
     version: Optional[int] = None
     tags: Optional[list[str]] = None
+    members: Optional[list["WorkflowMemberWrite"]] = None
 
 
 class WorkflowStepCreate(WorkflowStepBase):
@@ -89,6 +93,20 @@ class WorkflowBranchUpdate(BaseModel):
 
 class WorkflowBranchStepCreate(WorkflowStepBase):
     pass
+
+
+class WorkflowStandardizeRequest(BaseModel):
+    title: str
+    description: str = ""
+    tags: list[str] = Field(default_factory=list)
+    members: Optional[list["WorkflowMemberWrite"]] = None
+
+
+class WorkflowInsertStandardizedRequest(BaseModel):
+    standardized_workflow_id: str
+    after_step_id: Optional[str] = None
+    anchor_step_id: Optional[str] = None
+    branch_label: Optional[str] = None
 
 
 class WorkflowBranchStepRead(WorkflowStepBase):
@@ -139,13 +157,28 @@ class WorkflowRead(BaseModel):
     title: str
     description: str
     owner_id: Optional[str]
+    project_id: Optional[str] = None
     visibility: str
     library_state: str
     version: int
     tags: list[str] = Field(default_factory=list)
+    members: list["WorkflowMemberRead"] = Field(default_factory=list)
     steps: list[WorkflowStepRead] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
+
+
+class WorkflowMemberWrite(BaseModel):
+    user_id: str
+    role: str
+
+
+class WorkflowMemberRead(BaseModel):
+    user_id: str
+    display_name: str
+    email: str
+    lab_role: str
+    workflow_role: str
 
 
 class ChatChannelCreate(BaseModel):
@@ -203,6 +236,19 @@ class ChatMessageRead(BaseModel):
     updated_at: datetime
 
 
+class ProjectMemberWrite(BaseModel):
+    user_id: str
+    role: str
+
+
+class ProjectMemberRead(BaseModel):
+    user_id: str
+    display_name: str
+    email: str
+    lab_role: str
+    project_role: str
+
+
 class ProjectRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -217,6 +263,7 @@ class ProjectRead(BaseModel):
     experiment_count: int = 0
     workflow_count: int = 0
     progress_percent: int = 0
+    members: list[ProjectMemberRead] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
 
@@ -227,6 +274,25 @@ class ProjectCreate(BaseModel):
     description: str = ""
     status: str = "active"
     tags: list[str] = Field(default_factory=list)
+
+
+class ProjectUpdate(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    status: Optional[str] = None
+    tags: Optional[list[str]] = None
+    members: Optional[list[ProjectMemberWrite]] = None
+
+
+class LabMemberRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    email: str
+    display_name: str
+    role: str
+    lab_id: str
+    created_at: datetime
 
 
 class ExperimentCreate(BaseModel):
