@@ -9,7 +9,7 @@ from .attachments import serialize_attachment
 from .config import get_settings
 from .database import get_db
 from .deps import get_current_user, get_or_create_mock_user
-from .models import Attachment, User, Workflow, WorkflowBranch, WorkflowMember, WorkflowStep
+from .models import Attachment, Project, User, Workflow, WorkflowBranch, WorkflowMember, WorkflowStep
 from .schemas import (
     WorkflowBranchCreate,
     WorkflowBranchRead,
@@ -40,6 +40,22 @@ def _new_id(prefix: str) -> str:
 
 def _new_workflow_member_id() -> str:
     return f"workflow-member-{uuid4().hex[:10]}"
+
+
+def _assert_standardized_workflow_has_type(payload: WorkflowCreate | WorkflowUpdate) -> None:
+    """Library standards are organized under exactly one workflow type."""
+    tags = getattr(payload, "tags", None)
+    visibility = getattr(payload, "visibility", None)
+    library_state = getattr(payload, "library_state", None)
+    project_id = getattr(payload, "project_id", None)
+    is_standardized = (tags is not None and "standardized" in tags) or visibility == "library" or library_state == "published"
+    if is_standardized and not project_id:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Standardized workflows require a workflow type")
+
+
+def _assert_project_exists(db: Session, project_id: Optional[str]) -> None:
+    if project_id is not None and db.get(Project, project_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workflow type not found")
 
 
 def _is_local_demo_mode() -> bool:
@@ -361,6 +377,8 @@ def list_workflows(
 
 @router.post("", response_model=WorkflowRead, status_code=status.HTTP_201_CREATED)
 def create_workflow(payload: WorkflowCreate, db: Session = Depends(get_db)) -> WorkflowRead:
+    _assert_standardized_workflow_has_type(payload)
+    _assert_project_exists(db, payload.project_id)
     user = get_or_create_mock_user(db)
     workflow = Workflow(
         id=_new_id("workflow"),
@@ -399,6 +417,14 @@ def update_workflow(workflow_id: str, payload: WorkflowUpdate, db: Session = Dep
     workflow = _get_workflow(db, workflow_id)
     _assert_workflow_can_edit(db, workflow)
     updates = payload.model_dump(exclude_unset=True)
+    candidate = WorkflowCreate(
+        title=updates.get("title", workflow.title), description=updates.get("description", workflow.description),
+        project_id=updates.get("project_id", workflow.project_id), visibility=updates.get("visibility", workflow.visibility),
+        library_state=updates.get("library_state", workflow.library_state), version=updates.get("version", workflow.version),
+        tags=updates.get("tags", workflow.tags),
+    )
+    _assert_standardized_workflow_has_type(candidate)
+    _assert_project_exists(db, candidate.project_id)
     members = updates.pop("members", None)
     for field, value in updates.items():
         setattr(workflow, field, value)
@@ -464,6 +490,8 @@ def standardize_workflow(
 ) -> WorkflowRead:
     source = _get_workflow(db, workflow_id)
     _assert_workflow_can_edit(db, source)
+    if not source.project_id:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Experimental workflows require a workflow type before standardizing")
     user = get_or_create_mock_user(db)
     tags = list(dict.fromkeys(["standardized", *payload.tags]))
     standardized = Workflow(
@@ -471,7 +499,7 @@ def standardize_workflow(
         title=payload.title,
         description=payload.description,
         owner_id=user.id,
-        project_id=None,
+        project_id=source.project_id,
         visibility="library",
         library_state="published",
         version=1,

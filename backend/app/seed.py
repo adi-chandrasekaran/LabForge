@@ -21,7 +21,7 @@ from .models import (
 )
 
 
-SHOWCASE_PROJECT_IDS = {"project-anc2", "project-rpc10", "project-ccl20"}
+SHOWCASE_PROJECT_IDS = {"project-anc2", "project-rpc10", "project-ccl20", "project-shared-methods"}
 STALE_PROJECT_PREFIXES = ("PR6 Sync Project", "SEC Optimization")
 STALE_PROJECT_TITLES = {
     "BRCA1 Sanger Sequencing",
@@ -1204,6 +1204,16 @@ def seed_reference_data(db: Session) -> None:
         status="active",
         tags=["ccl20", "transformation", "cloning"],
     )
+    shared_methods_project = _ensure_project(
+        db,
+        project_id="project-shared-methods",
+        title="Shared Methods",
+        code="SHARED-METHODS",
+        description="Lab-wide standardized methods shared across protein workflow types.",
+        owner_id=owner.id,
+        status="active",
+        tags=["shared", "standardized", "methods"],
+    )
     _ensure_project_member(db, anc2_project.id, owner.id, "owner")
     _ensure_project_member(db, anc2_project.id, ferretti.id, "editor")
     _ensure_project_member(db, anc2_project.id, okafor.id, "commenter")
@@ -1211,6 +1221,12 @@ def seed_reference_data(db: Session) -> None:
     _ensure_project_member(db, rpc10_project.id, ferretti.id, "editor")
     _ensure_project_member(db, ccl20_project.id, owner.id, "owner")
     _ensure_project_member(db, ccl20_project.id, okafor.id, "viewer")
+    _ensure_project_member(db, shared_methods_project.id, owner.id, "owner")
+
+    # Standards created before type grouping remain discoverable in Shared Methods.
+    for workflow in db.scalars(select(Workflow).where(Workflow.project_id.is_(None))).all():
+        if "standardized" in workflow.tags:
+            workflow.project_id = shared_methods_project.id
 
     _seed_workflow(
         db,
@@ -1272,6 +1288,7 @@ def seed_reference_data(db: Session) -> None:
         "Standardized reverse Ni-NTA cleanup workflow for post-cleavage His-tag removal.",
         ["standardized", "chromatography", "reverse-nickel"],
         REVERSE_NICKEL_STANDARD_STEPS,
+        project_id=shared_methods_project.id,
     )
     _seed_workflow(
         db,
@@ -1281,6 +1298,7 @@ def seed_reference_data(db: Session) -> None:
         "Standardized ion-exchange workflow for salt-gradient polishing and fraction selection.",
         ["standardized", "chromatography", "ion-exchange"],
         ION_EXCHANGE_STANDARD_STEPS,
+        project_id=shared_methods_project.id,
     )
     _ensure_workflow_member(db, "workflow-standard-reverse-nickel", ferretti.id, "editor")
     _ensure_workflow_member(db, "workflow-standard-ion-exchange", ferretti.id, "editor")
