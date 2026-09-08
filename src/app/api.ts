@@ -261,6 +261,8 @@ interface ApiWorkflow {
   tags: string[];
   members: ApiWorkflowMember[];
   steps: ApiWorkflowStep[];
+  created_at: string;
+  updated_at: string;
 }
 
 interface ApiExperimentStepRun {
@@ -371,6 +373,8 @@ export interface WorkflowRecord {
   tags: string[];
   members: WorkflowMemberRecord[];
   steps: WorkflowStep[];
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface ExternalDocSummaryRecord {
@@ -644,6 +648,8 @@ function toWorkflowRecord(workflow: ApiWorkflow): WorkflowRecord {
       workflowRole: member.workflow_role,
     })),
     steps: workflow.steps.map(toUiStep),
+    createdAt: workflow.created_at,
+    updatedAt: workflow.updated_at,
   };
 }
 
