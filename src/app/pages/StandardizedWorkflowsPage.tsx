@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { CornerDownRight, Pencil, Plus, Shield, Trash2, Users, X } from "lucide-react";
 import ConfirmDialog from "../components/ConfirmDialog";
+import WorkflowTypeNavigator from "../components/WorkflowTypeNavigator";
 import {
   createMainWorkflowStep,
   createWorkflow,
@@ -11,11 +12,13 @@ import {
   deleteWorkflowStep,
   fetchCurrentUser,
   fetchLabMembers,
+  fetchProjects,
   fetchWorkflows,
   publishWorkflow,
   updateWorkflow,
   updateWorkflowStep,
   type LabMemberRecord,
+  type ProjectRecord,
   type UserRecord,
   type WorkflowMemberRecord,
   type WorkflowRecord,
@@ -253,6 +256,8 @@ function StepCard({
 
 export default function StandardizedWorkflowsPage() {
   const [workflows, setWorkflows] = useState<WorkflowRecord[]>([]);
+  const [projects, setProjects] = useState<ProjectRecord[]>([]);
+  const [selectedProjectId, setSelectedProjectId] = useState("");
   const [labMembers, setLabMembers] = useState<LabMemberRecord[]>([]);
   const [currentUser, setCurrentUser] = useState<UserRecord | null>(null);
   const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | null>(null);
@@ -267,6 +272,7 @@ export default function StandardizedWorkflowsPage() {
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
   const [metadataForm, setMetadataForm] = useState({
     id: "",
+    projectId: "",
     title: "",
     description: "",
     tags: "",
@@ -284,15 +290,18 @@ export default function StandardizedWorkflowsPage() {
     setLoading(true);
     setError(null);
     try {
-      const [nextWorkflows, nextLabMembers, nextUser] = await Promise.all([
+      const [nextWorkflows, nextProjects, nextLabMembers, nextUser] = await Promise.all([
         fetchWorkflows({ tag: "standardized", libraryState: "published", visibility: "library" }),
+        fetchProjects(),
         fetchLabMembers(),
         fetchCurrentUser(),
       ]);
       setWorkflows(nextWorkflows);
+      setProjects(nextProjects);
       setLabMembers(nextLabMembers);
       setCurrentUser(nextUser);
       setSelectedWorkflowId((current) => current ?? nextWorkflows[0]?.id ?? null);
+      setSelectedProjectId((current) => current || nextWorkflows[0]?.projectId || nextProjects[0]?.id || "");
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Failed to load standardized workflows");
     } finally {
@@ -304,10 +313,7 @@ export default function StandardizedWorkflowsPage() {
     void loadPage();
   }, []);
 
-  const selectedWorkflow = useMemo(
-    () => workflows.find((workflow) => workflow.id === selectedWorkflowId) ?? null,
-    [selectedWorkflowId, workflows],
-  );
+  const selectedWorkflow = useMemo(() => workflows.find((workflow) => workflow.id === selectedWorkflowId && workflow.projectId === selectedProjectId) ?? workflows.find((workflow) => workflow.projectId === selectedProjectId) ?? null, [selectedProjectId, selectedWorkflowId, workflows]);
   const currentWorkflowRole = selectedWorkflow?.members.find((member) => member.userId === currentUser?.id)?.workflowRole;
   const canEdit = currentWorkflowRole === "owner" || currentWorkflowRole === "editor";
   const availableMembers = labMembers.filter((member) => !metadataForm.members.some((workflowMember) => workflowMember.userId === member.id));
@@ -325,13 +331,14 @@ export default function StandardizedWorkflowsPage() {
   }
 
   function openCreateDialog() {
-    setMetadataForm({ id: "", title: "", description: "", tags: "standardized", members: [] });
+    setMetadataForm({ id: "", projectId: selectedProjectId, title: "", description: "", tags: "standardized", members: [] });
     setCreateOpen(true);
   }
 
   function openMetadataDialog(workflow: WorkflowRecord) {
     setMetadataForm({
       id: workflow.id,
+      projectId: workflow.projectId ?? "",
       title: workflow.title,
       description: workflow.description,
       tags: workflow.tags.join(", "),
@@ -353,6 +360,7 @@ export default function StandardizedWorkflowsPage() {
       const created = await createWorkflow({
         title: metadataForm.title || "Untitled standardized workflow",
         description: metadataForm.description,
+        projectId: metadataForm.projectId,
         tags: tags.includes("standardized") ? tags : ["standardized", ...tags],
         visibility: "library",
         libraryState: "published",
@@ -376,6 +384,7 @@ export default function StandardizedWorkflowsPage() {
       const updated = await updateWorkflow(metadataForm.id, {
         title: metadataForm.title,
         description: metadataForm.description,
+        projectId: metadataForm.projectId,
         tags: tags.includes("standardized") ? tags : ["standardized", ...tags],
         members: metadataForm.members.map((member) => ({ userId: member.userId, workflowRole: member.workflowRole })),
       });
@@ -497,8 +506,21 @@ export default function StandardizedWorkflowsPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 xl:grid-cols-[320px_1fr] gap-5">
-        <aside className="border border-border bg-card rounded-sm overflow-hidden">
+      <WorkflowTypeNavigator
+        projects={projects}
+        workflows={workflows}
+        selectedProjectId={selectedProjectId}
+        selectedWorkflowId={selectedWorkflow?.id ?? null}
+        onSelectProject={(projectId) => { setSelectedProjectId(projectId); setSelectedWorkflowId(workflows.find((workflow) => workflow.projectId === projectId)?.id ?? null); }}
+        onSelectWorkflow={setSelectedWorkflowId}
+        onCreateType={() => { window.location.href = "/workflow"; }}
+        onCreateBatch={openCreateDialog}
+        typeLabel="WORKFLOW TYPES"
+        batchLabel="STANDARDIZED WORKFLOWS"
+      />
+
+      <div className="mt-5 grid grid-cols-1 gap-5">
+        <aside className="hidden border border-border bg-card rounded-sm overflow-hidden">
           <div className="px-4 py-3 border-b border-border text-[9px] font-mono tracking-widest text-muted-foreground">
             LIBRARY ENTRIES
           </div>
@@ -684,6 +706,7 @@ export default function StandardizedWorkflowsPage() {
         title={createOpen ? "Create standardized workflow" : "Edit library entry"}
         form={metadataForm}
         setForm={setMetadataForm}
+        projects={projects}
         labMembers={labMembers}
         availableMembers={availableMembers}
         saving={saving}
@@ -824,6 +847,7 @@ function WorkflowMetadataDialog({
   title,
   form,
   setForm,
+  projects,
   labMembers,
   availableMembers,
   saving,
@@ -835,6 +859,7 @@ function WorkflowMetadataDialog({
   title: string;
   form: {
     id: string;
+    projectId: string;
     title: string;
     description: string;
     tags: string;
@@ -842,11 +867,13 @@ function WorkflowMetadataDialog({
   };
   setForm: (form: {
     id: string;
+    projectId: string;
     title: string;
     description: string;
     tags: string;
     members: WorkflowMemberRecord[];
   }) => void;
+  projects: ProjectRecord[];
   labMembers: LabMemberRecord[];
   availableMembers: LabMemberRecord[];
   saving: boolean;
@@ -869,6 +896,13 @@ function WorkflowMetadataDialog({
           </div>
 
           <div className="mt-5 grid grid-cols-1 gap-4">
+            <div>
+              <label className="block text-[9px] font-mono tracking-widest text-muted-foreground mb-1">WORKFLOW TYPE</label>
+              <select data-testid="standardized-project-select" required className={inputCls} value={form.projectId} onChange={(event) => setForm({ ...form, projectId: event.target.value })}>
+                <option value="">Select a type...</option>
+                {projects.map((project) => <option key={project.id} value={project.id}>{project.title}</option>)}
+              </select>
+            </div>
             <div>
               <label className="block text-[9px] font-mono tracking-widest text-muted-foreground mb-1">TITLE</label>
               <input data-testid="standardized-title-input" className={inputCls} value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} />
@@ -954,11 +988,11 @@ function WorkflowMetadataDialog({
             <Dialog.Close className="rounded-sm border border-border px-3 py-2 text-[10px] font-mono text-muted-foreground hover:text-foreground">
               CANCEL
             </Dialog.Close>
-            <button
-              type="button"
-              data-testid="standardized-save-metadata"
-              onClick={onSubmit}
-              disabled={saving}
+              <button
+                type="button"
+                data-testid="standardized-save-metadata"
+                onClick={onSubmit}
+                disabled={saving || !form.projectId}
               className="rounded-sm bg-[#00c9a7] px-3 py-2 text-[10px] font-mono font-semibold text-[#080c12] hover:bg-[#00b899] disabled:opacity-60"
             >
               {saving ? "SAVING..." : actionLabel}
