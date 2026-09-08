@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { CornerDownRight, Pencil, Plus, Trash2, X } from "lucide-react";
 import ConfirmDialog from "../components/ConfirmDialog";
+import WorkflowTypeNavigator from "../components/WorkflowTypeNavigator";
 import {
   createMainWorkflowStep,
   createWorkflowBranchStep,
   createWorkflow,
+  createProject,
   createWorkflowBranch,
   deleteWorkflow,
   deleteWorkflowBranch,
@@ -770,6 +772,7 @@ export default function WorkflowPage() {
   const [workflows, setWorkflows] = useState<WorkflowRecord[]>([]);
   const [standardized, setStandardized] = useState<WorkflowRecord[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState("");
+  const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [error, setError] = useState("");
   const [addTarget, setAddTarget] = useState<AddTarget | null>(null);
@@ -778,6 +781,8 @@ export default function WorkflowPage() {
   const [editing, setEditing] = useState<{ workflow: WorkflowRecord; step: WorkflowStep } | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
   const [standardizeTarget, setStandardizeTarget] = useState<WorkflowRecord | null>(null);
+  const [typeCreateOpen, setTypeCreateOpen] = useState(false);
+  const [batchCreateOpen, setBatchCreateOpen] = useState(false);
 
   async function loadData() {
     try {
@@ -791,6 +796,7 @@ export default function WorkflowPage() {
       setWorkflows(nextWorkflows);
       setStandardized(nextStandardized);
       setSelectedProjectId((current) => current || nextProjects[0]?.id || "");
+      setSelectedWorkflowId((current) => current || nextWorkflows.find((workflow) => workflow.projectId === (nextProjects[0]?.id ?? ""))?.id || null);
     } catch (event) {
       setError(event instanceof Error ? event.message : "Failed to load workflows");
     }
@@ -805,6 +811,12 @@ export default function WorkflowPage() {
     () => workflows.filter((workflow) => workflow.projectId === selectedProjectId),
     [workflows, selectedProjectId],
   );
+  const selectedWorkflow = selectedWorkflows.find((workflow) => workflow.id === selectedWorkflowId) ?? selectedWorkflows[0] ?? null;
+
+  function selectProject(projectId: string) {
+    setSelectedProjectId(projectId);
+    setSelectedWorkflowId(workflows.find((workflow) => workflow.projectId === projectId)?.id ?? null);
+  }
 
   async function ensureWorkflow(project: ProjectRecord) {
     const workflow = await createWorkflow({
@@ -816,6 +828,7 @@ export default function WorkflowPage() {
       tags: ["experimental", ...project.tags],
     });
     setWorkflows((current) => [...current, workflow]);
+    setSelectedWorkflowId(workflow.id);
     setAddTarget({ workflowId: workflow.id, afterStepId: null });
   }
 
@@ -883,7 +896,9 @@ export default function WorkflowPage() {
     if (!deleteTarget) return;
     if (deleteTarget.kind === "workflow") {
       await deleteWorkflow(deleteTarget.workflowId);
-      setWorkflows((current) => current.filter((workflow) => workflow.id !== deleteTarget.workflowId));
+      const remaining = workflows.filter((workflow) => workflow.id !== deleteTarget.workflowId);
+      setWorkflows(remaining);
+      setSelectedWorkflowId(remaining.find((workflow) => workflow.projectId === selectedProjectId)?.id ?? null);
     }
     if (deleteTarget.kind === "step") {
       const steps = await deleteWorkflowStep(deleteTarget.workflowId, deleteTarget.stepId);
@@ -902,44 +917,49 @@ export default function WorkflowPage() {
     setStandardizeTarget(null);
   }
 
+  async function createType(payload: { title: string; code: string; description: string }) {
+    const project = await createProject({ title: payload.title, code: payload.code, description: payload.description, tags: [payload.title.toLowerCase()] });
+    setProjects((current) => [project, ...current]);
+    setSelectedProjectId(project.id);
+    await loadData();
+    setTypeCreateOpen(false);
+  }
+
+  async function createBatch(payload: { title: string; standardizedWorkflowId: string }) {
+    if (!selectedProject) return;
+    const workflow = await createWorkflow({ title: payload.title || `${selectedProject.title} Batch ${selectedWorkflows.length + 1}`, description: `Experimental batch for ${selectedProject.title}.`, projectId: selectedProject.id, visibility: "private", libraryState: "draft", tags: ["experimental", ...selectedProject.tags] });
+    let created = workflow;
+    if (payload.standardizedWorkflowId) {
+      const steps = await insertStandardizedWorkflow(workflow.id, { standardizedWorkflowId: payload.standardizedWorkflowId });
+      created = { ...workflow, steps };
+    }
+    setWorkflows((current) => [...current, created]);
+    setSelectedWorkflowId(created.id);
+    setBatchCreateOpen(false);
+  }
+
   return (
     <main className="min-h-screen bg-[#080c12] p-8 font-mono text-[#d3dce8]">
       <div className="mx-auto max-w-[1500px]">
         <div className="mb-6 text-[10px] uppercase tracking-[0.3em] text-[#52657f]">Workflow / experimental workflows</div>
-        <div className="mb-5 flex flex-wrap gap-2">
-          {projects.map((project) => (
-            <button
-              key={project.id}
-              data-testid={`workflow-project-tab-${project.id}`}
-              className={`rounded border px-3 py-2 text-xs font-bold uppercase ${
-                project.id === selectedProjectId
-                  ? "border-[#00c9a7] bg-[#09211f] text-[#00c9a7]"
-                  : "border-[#1b2633] bg-[#0b1118] text-[#7d90aa]"
-              }`}
-              onClick={() => setSelectedProjectId(project.id)}
-            >
-              {project.title.replace(" Protein Purification", "").replace(" Purification Process And Troubleshooting", "").replace(" Transformation And Culture", "")}
-            </button>
-          ))}
-        </div>
+        <WorkflowTypeNavigator projects={projects.filter((project) => project.id !== "project-shared-methods")} workflows={workflows} selectedProjectId={selectedProjectId} selectedWorkflowId={selectedWorkflow?.id ?? null} onSelectProject={selectProject} onSelectWorkflow={setSelectedWorkflowId} onCreateType={() => setTypeCreateOpen(true)} onCreateBatch={() => setBatchCreateOpen(true)} />
         <div className="mb-8 flex items-start justify-between">
           <div>
             <div className="text-[10px] uppercase tracking-[0.3em] text-[#52657f]">Workflow schematic</div>
             <h1 className="mt-2 text-2xl font-bold">{selectedProject?.title ?? "Experimental Workflows"}</h1>
             <p className="mt-2 text-sm text-[#52657f]">{selectedProject?.description ?? "Select a project to edit its workflow."}</p>
           </div>
-          {selectedProject && selectedWorkflows.every((workflow) => workflow.steps.length === 0) ? (
+          {selectedProject && selectedWorkflow && selectedWorkflow.steps.length === 0 ? (
             <button className="rounded bg-[#00c9a7] px-4 py-3 text-xs font-bold uppercase text-[#080c12]" onClick={() => void startBlankWorkflow(selectedProject)}>
               Create blank workflow
             </button>
           ) : null}
         </div>
         {error ? <div className="mb-6 rounded border border-red-500/40 bg-red-950/30 p-4 text-sm text-red-200">{error}</div> : null}
-        <div className={`grid gap-8 ${selectedWorkflows.length > 1 ? "xl:grid-cols-2" : ""}`}>
-          {selectedWorkflows.map((workflow) => (
+        <div className="mt-8">
+          {selectedWorkflow ? (
             <WorkflowColumn
-              key={workflow.id}
-              workflow={workflow}
+              workflow={selectedWorkflow}
               expanded={expanded}
               onToggle={(stepId) => setExpanded((current) => {
                 const next = new Set(current);
@@ -957,7 +977,7 @@ export default function WorkflowPage() {
               onDeleteWorkflow={setDeleteTarget}
               onStandardize={setStandardizeTarget}
             />
-          ))}
+          ) : <div className="rounded border border-dashed border-[#1b2633] p-8 text-center text-sm text-[#52657f]">Create a batch to start authoring a workflow.</div>}
         </div>
       </div>
       <AddStepModal target={addTarget} standardized={standardized} onClose={() => setAddTarget(null)} onSubmit={(target, payload) => void handleAdd(target, payload)} />
@@ -972,6 +992,21 @@ export default function WorkflowPage() {
         onOpenChange={(open) => !open && setDeleteTarget(null)}
         onConfirm={() => void handleDelete()}
       />
+      <TypeCreateModal open={typeCreateOpen} onClose={() => setTypeCreateOpen(false)} onSubmit={(payload) => void createType(payload)} />
+      <BatchCreateModal open={batchCreateOpen} standardized={standardized} onClose={() => setBatchCreateOpen(false)} onSubmit={(payload) => void createBatch(payload)} />
     </main>
   );
+}
+
+function TypeCreateModal({ open, onClose, onSubmit }: { open: boolean; onClose: () => void; onSubmit: (payload: { title: string; code: string; description: string }) => void }) {
+  const [title, setTitle] = useState(""); const [code, setCode] = useState(""); const [description, setDescription] = useState("");
+  if (!open) return null;
+  return <div className="fixed inset-0 z-50 grid place-items-center bg-black/70"><div className="w-[440px] rounded border border-[#1b2633] bg-[#080c12] p-5"><h3 className="text-sm font-bold uppercase text-[#d3dce8]">New workflow type</h3><input className="mt-4 w-full rounded border border-[#1b2633] bg-[#121c27] p-2" placeholder="Protein or workflow type" value={title} onChange={(event) => setTitle(event.target.value)} /><input className="mt-3 w-full rounded border border-[#1b2633] bg-[#121c27] p-2" placeholder="Type code" value={code} onChange={(event) => setCode(event.target.value)} /><textarea className="mt-3 w-full rounded border border-[#1b2633] bg-[#121c27] p-2" placeholder="Description" value={description} onChange={(event) => setDescription(event.target.value)} /><div className="mt-4 flex gap-2"><button className="flex-1 rounded border border-[#1b2633] py-2 text-xs" onClick={onClose}>Cancel</button><button className="flex-1 rounded bg-[#00c9a7] py-2 text-xs font-bold text-[#080c12]" disabled={!title || !code} onClick={() => onSubmit({ title, code, description })}>Create type</button></div></div></div>;
+}
+
+function BatchCreateModal({ open, standardized, onClose, onSubmit }: { open: boolean; standardized: WorkflowRecord[]; onClose: () => void; onSubmit: (payload: { title: string; standardizedWorkflowId: string }) => void }) {
+  const [title, setTitle] = useState(""); const [source, setSource] = useState("blank"); const [standardizedWorkflowId, setStandardizedWorkflowId] = useState("");
+  useEffect(() => { if (open) { setTitle(""); setSource("blank"); setStandardizedWorkflowId(standardized[0]?.id ?? ""); } }, [open, standardized]);
+  if (!open) return null;
+  return <div className="fixed inset-0 z-50 grid place-items-center bg-black/70"><div className="w-[440px] rounded border border-[#1b2633] bg-[#080c12] p-5"><h3 className="text-sm font-bold uppercase text-[#d3dce8]">New batch</h3><input className="mt-4 w-full rounded border border-[#1b2633] bg-[#121c27] p-2" placeholder="Batch name" value={title} onChange={(event) => setTitle(event.target.value)} /><label className="mt-3 block text-xs text-[#7d90aa]">Start with<select className="mt-1 w-full rounded border border-[#1b2633] bg-[#121c27] p-2" value={source} onChange={(event) => setSource(event.target.value)}><option value="blank">Blank batch</option><option value="standard">Standardized template</option></select></label>{source === "standard" ? <select className="mt-3 w-full rounded border border-[#1b2633] bg-[#121c27] p-2" value={standardizedWorkflowId} onChange={(event) => setStandardizedWorkflowId(event.target.value)}>{standardized.map((workflow) => <option key={workflow.id} value={workflow.id}>{workflow.title}</option>)}</select> : null}<div className="mt-4 flex gap-2"><button className="flex-1 rounded border border-[#1b2633] py-2 text-xs" onClick={onClose}>Cancel</button><button className="flex-1 rounded bg-[#00c9a7] py-2 text-xs font-bold text-[#080c12]" onClick={() => onSubmit({ title, standardizedWorkflowId: source === "standard" ? standardizedWorkflowId : "" })}>Create batch</button></div></div></div>;
 }
