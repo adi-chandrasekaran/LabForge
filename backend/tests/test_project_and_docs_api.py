@@ -42,6 +42,7 @@ def test_local_showcase_projects_are_deterministic(client) -> None:
         "ANC2 Protein Purification",
         "RPC10 Purification Process And Troubleshooting",
         "CCL20 Transformation And Culture",
+        "Shared Methods",
     }
     assert all(project["owner_display_name"] == "Chen, Y." for project in response.json())
 

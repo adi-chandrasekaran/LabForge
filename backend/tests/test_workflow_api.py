@@ -199,6 +199,7 @@ def test_standardized_workflow_authoring_and_delete(client) -> None:
         json={
             "title": "Dummy Standardized Workflow",
             "description": "Temporary reusable protocol.",
+            "project_id": "project-shared-methods",
             "visibility": "library",
             "library_state": "published",
             "version": 1,
@@ -208,7 +209,7 @@ def test_standardized_workflow_authoring_and_delete(client) -> None:
     assert create_response.status_code == 201
     workflow = create_response.json()
     assert workflow["title"] == "Dummy Standardized Workflow"
-    assert workflow["project_id"] is None
+    assert workflow["project_id"] == "project-shared-methods"
     assert workflow["library_state"] == "published"
 
     add_step = client.post(
@@ -281,7 +282,7 @@ def test_standardize_and_insert_standardized_workflow_copy(client) -> None:
     standardized = standardize_response.json()
     assert standardized["title"] == "RPC10 Snapshot Standard"
     assert "standardized" in standardized["tags"]
-    assert standardized["project_id"] is None
+    assert standardized["project_id"] == "project-rpc10"
     assert len(standardized["steps"]) > 0
 
     insert_response = client.post(
