@@ -29,6 +29,8 @@ class Settings(BaseModel):
     supabase_url: Optional[str] = None
     supabase_project_ref: Optional[str] = None
     tigris_bucket: Optional[str] = None
+    openai_api_key: Optional[str] = None
+    agent_model: str = "gpt-5.5"
 
     @property
     def data_dir(self) -> Path:
@@ -78,4 +80,6 @@ def get_settings() -> Settings:
         supabase_url=os.getenv("NMR_LAB_SUPABASE_URL"),
         supabase_project_ref=os.getenv("NMR_LAB_SUPABASE_PROJECT_REF"),
         tigris_bucket=os.getenv("NMR_LAB_TIGRIS_BUCKET"),
+        openai_api_key=os.getenv("NMR_LAB_OPENAI_API_KEY"),
+        agent_model=os.getenv("NMR_LAB_AGENT_MODEL", "gpt-5.5"),
     )

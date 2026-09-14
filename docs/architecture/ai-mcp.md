@@ -82,6 +82,27 @@ The tool layer is intentionally not an LLM provider, prompt loop, or MCP
 transport. Unsupported NMR data tools remain discoverable as unavailable rather
 than fabricating results.
 
+## NMR Research Assistant Foundation
+
+PR 4 adds the durable, provider-backed boundary for a future NMR research
+assistant without making a model request. The SQLite audit model consists of
+owned `AgentConversation` records, `AgentRun` records, and ordered
+`AgentToolCall` records. Conversation and audit endpoints are authenticated and
+only return records owned by the current user.
+
+The server reads `NMR_LAB_OPENAI_API_KEY` only from its environment and uses
+`NMR_LAB_AGENT_MODEL` (default `gpt-5.5`) as model metadata. No route, audit
+record, log, or frontend state exposes the key. `GET /api/v1/agent/status`
+returns `agent_unavailable` when the key is absent.
+
+`OpenAIResponsesResearchAssistant` is the integration boundary for the OpenAI
+Responses API. Its function catalog is generated from PR 3's registry, but it
+includes only supported read tools: unavailable NMR tools and `create_note` are
+excluded. The permanent assistant instruction requires tool evidence for every
+dataset-specific claim, prohibits invented experimental values, and requires a
+clear statement when data is unavailable. PR 5 will add the bounded execution
+loop and model request.
+
 ## Frontend Surface
 
 `/ai-model` now loads backend placeholder data and renders:

@@ -80,6 +80,11 @@ The API is versioned under `/api/v1`. FastAPI generates `/openapi.json` and inte
 - `GET /api/v1/mcp/manifest`
 - `GET /api/v1/agent/tools`
 - `POST /api/v1/agent/tools/{tool_name}/invoke`
+- `GET /api/v1/agent/status`
+- `POST /api/v1/agent/conversations`
+- `GET /api/v1/agent/conversations/{conversation_id}`
+- `GET /api/v1/agent/conversations/{conversation_id}/runs`
+- `GET /api/v1/agent/conversations/{conversation_id}/runs/{run_id}`
 
 ## PR 3 Behavior Notes
 
@@ -100,6 +105,8 @@ The API is versioned under `/api/v1`. FastAPI generates `/openapi.json` and inte
 - The MCP manifest is generated from the live FastAPI OpenAPI schema, not from a separate manual registry.
 - The agent-tool catalog is the executable, schema-backed tool boundary. It returns supported and unavailable tools, while invocations return a stable `{ tool_name, ok, data, error }` envelope.
 - `create_note` requires `confirmed: true` and delegates to the existing chat-message operation; it cannot update embedded experiment or workflow-step notes.
+- Agent conversations and their run/tool-call audit records are owner-scoped. PR 4 exposes their retrieval APIs only; PR 5 will create and execute runs.
+- `GET /api/v1/agent/status` intentionally reports configuration availability without revealing a provider secret.
 
 Future routes may add an MCP transport and analysis execution.
 
