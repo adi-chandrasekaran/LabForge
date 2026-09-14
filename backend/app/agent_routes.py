@@ -11,10 +11,14 @@ from .agent_research import (
     AgentConversationCreate,
     AgentConversationRead,
     AgentRunDetailRead,
+    AgentRunCreate,
     AgentRunRead,
+    AgentExecutionErrorRead,
+    AgentExecutionException,
     AgentStatusRead,
     assistant_status,
     create_conversation,
+    execute_run,
     get_conversation,
     get_run,
     list_runs,
@@ -57,6 +61,22 @@ def list_agent_runs(conversation_id: str, db: Session = Depends(get_db)) -> list
 @router.get("/conversations/{conversation_id}/runs/{run_id}", response_model=AgentRunDetailRead)
 def read_agent_run(conversation_id: str, run_id: str, db: Session = Depends(get_db)) -> AgentRunDetailRead:
     return serialize_run(get_run(db, get_current_user(db), conversation_id, run_id), include_tool_calls=True)
+
+
+@router.post("/conversations/{conversation_id}/runs", response_model=AgentRunDetailRead)
+def create_agent_run(
+    conversation_id: str,
+    payload: AgentRunCreate,
+    db: Session = Depends(get_db),
+) -> AgentRunDetailRead | JSONResponse:
+    try:
+        run = execute_run(db, get_current_user(db), conversation_id, payload)
+        return serialize_run(run, include_tool_calls=True)
+    except AgentExecutionException as error:
+        return JSONResponse(
+            status_code=error.status_code,
+            content=AgentExecutionErrorRead(code=error.code, message=error.message, run_id=error.run_id).model_dump(),
+        )
 
 
 @router.get("/tools", response_model=AgentToolCatalogRead)
