@@ -73,11 +73,13 @@ The API is versioned under `/api/v1`. FastAPI generates `/openapi.json` and inte
 - `GET /api/v1/channels/{channel_id}/messages/{message_id}/attachments`
 - `POST /api/v1/channels/{channel_id}/messages/{message_id}/attachments`
 
-## AI And MCP Placeholder Routes
+## AI, Agent Tool, And MCP Routes
 
 - `GET /api/v1/ai/settings`
 - `GET /api/v1/analysis/modules`
 - `GET /api/v1/mcp/manifest`
+- `GET /api/v1/agent/tools`
+- `POST /api/v1/agent/tools/{tool_name}/invoke`
 
 ## PR 3 Behavior Notes
 
@@ -96,8 +98,10 @@ The API is versioned under `/api/v1`. FastAPI generates `/openapi.json` and inte
 - Message edits and deletes are allowed for the author or a professor override in local mode.
 - AI placeholder routes are intentionally read-only in PR 8.
 - The MCP manifest is generated from the live FastAPI OpenAPI schema, not from a separate manual registry.
+- The agent-tool catalog is the executable, schema-backed tool boundary. It returns supported and unavailable tools, while invocations return a stable `{ tool_name, ok, data, error }` envelope.
+- `create_note` requires `confirmed: true` and delegates to the existing chat-message operation; it cannot update embedded experiment or workflow-step notes.
 
-Future routes will cover MCP and analysis modules.
+Future routes may add an MCP transport and analysis execution.
 
 ## Design Rules
 

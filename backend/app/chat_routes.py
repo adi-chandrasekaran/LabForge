@@ -20,6 +20,7 @@ from .schemas import (
 )
 from .storage import get_storage_backend
 from .sync import record_local_change
+from .services import lookup as lookup_service
 
 
 router = APIRouter(prefix="/api/v1/channels", tags=["chat"])
@@ -80,10 +81,7 @@ def _serialize_message(db: Session, message: ChatMessage) -> ChatMessageRead:
 
 
 def _get_channel_for_user(db: Session, current_user: User, channel_id: str) -> ChatChannel:
-    channel = db.get(ChatChannel, channel_id)
-    if channel is None or channel.lab_id != current_user.lab_id:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Channel not found")
-    return channel
+    return lookup_service.get_channel_for_user(db, current_user, channel_id)
 
 
 def _get_message_for_user(db: Session, current_user: User, channel_id: str, message_id: str) -> ChatMessage:
@@ -94,10 +92,7 @@ def _get_message_for_user(db: Session, current_user: User, channel_id: str, mess
 
 
 def _validate_references(db: Session, referenced_workflow_id: Optional[str], referenced_experiment_id: Optional[str]) -> None:
-    if referenced_workflow_id and db.get(Workflow, referenced_workflow_id) is None:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Referenced workflow does not exist")
-    if referenced_experiment_id and db.get(Experiment, referenced_experiment_id) is None:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Referenced experiment does not exist")
+    lookup_service.validate_message_references(db, referenced_workflow_id, referenced_experiment_id)
 
 
 def _store_message_attachment(db: Session, message_id: str, upload: UploadFile) -> AttachmentRead:
@@ -131,11 +126,7 @@ def _store_message_attachment(db: Session, message_id: str, upload: UploadFile) 
 @router.get("", response_model=list[ChatChannelRead])
 def list_channels(db: Session = Depends(get_db)) -> list[ChatChannelRead]:
     current_user = get_current_user(db)
-    channels = db.scalars(
-        select(ChatChannel)
-        .where(ChatChannel.lab_id == current_user.lab_id)
-        .order_by(ChatChannel.name, ChatChannel.created_at)
-    ).all()
+    channels = lookup_service.list_channels(db, current_user)
     return [_serialize_channel(db, channel) for channel in channels]
 
 
@@ -207,34 +198,21 @@ def delete_channel(channel_id: str, db: Session = Depends(get_db)) -> Response:
 @router.get("/{channel_id}/messages", response_model=list[ChatMessageRead])
 def list_messages(channel_id: str, limit: int = Query(default=200, ge=1, le=500), db: Session = Depends(get_db)) -> list[ChatMessageRead]:
     current_user = get_current_user(db)
-    _get_channel_for_user(db, current_user, channel_id)
-    messages = db.scalars(
-        select(ChatMessage)
-        .where(ChatMessage.channel_id == channel_id, ChatMessage.lab_id == current_user.lab_id)
-        .order_by(ChatMessage.created_at)
-        .limit(limit)
-    ).all()
+    messages = lookup_service.list_channel_messages(db, current_user, channel_id, limit)
     return [_serialize_message(db, message) for message in messages]
 
 
 @router.post("/{channel_id}/messages", response_model=ChatMessageRead, status_code=status.HTTP_201_CREATED)
 def create_message(channel_id: str, payload: ChatMessageCreate, db: Session = Depends(get_db)) -> ChatMessageRead:
     current_user = get_current_user(db)
-    channel = _get_channel_for_user(db, current_user, channel_id)
-    _validate_references(db, payload.referenced_workflow_id, payload.referenced_experiment_id)
-    message = ChatMessage(
-        id=_new_id("message"),
-        channel_id=channel.id,
-        lab_id=current_user.lab_id,
-        author_id=current_user.id,
+    message = lookup_service.create_channel_message(
+        db,
+        current_user,
+        channel_id=channel_id,
         body=payload.body,
         referenced_workflow_id=payload.referenced_workflow_id,
         referenced_experiment_id=payload.referenced_experiment_id,
     )
-    db.add(message)
-    record_local_change(db, "chat.message.create")
-    db.commit()
-    db.refresh(message)
     return _serialize_message(db, message)
 
 

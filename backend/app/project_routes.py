@@ -22,6 +22,7 @@ from .models import (
 )
 from .schemas import ProjectCreate, ProjectMemberRead, ProjectRead, ProjectUpdate
 from .sync import record_local_change
+from .services import lookup as lookup_service
 
 
 router = APIRouter(prefix="/api/v1/projects", tags=["projects"])
@@ -115,10 +116,7 @@ def serialize_project(db: Session, project: Project) -> ProjectRead:
 
 
 def _get_project(db: Session, project_id: str) -> Project:
-    project = db.get(Project, project_id)
-    if project is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
-    return project
+    return lookup_service.get_project(db, project_id)
 
 
 def _upsert_project_owner_membership(db: Session, project: Project) -> None:
@@ -238,7 +236,7 @@ def _delete_project_cascade(db: Session, project: Project) -> None:
 
 @router.get("", response_model=list[ProjectRead])
 def list_projects(db: Session = Depends(get_db)) -> list[ProjectRead]:
-    projects = db.scalars(select(Project).order_by(Project.updated_at.desc(), Project.created_at.desc())).all()
+    projects = lookup_service.list_projects(db)
     return [serialize_project(db, project) for project in projects]
 
 

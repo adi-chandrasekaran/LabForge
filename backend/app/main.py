@@ -2,6 +2,7 @@ from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from sqlalchemy.orm import Session
+from .agent_routes import router as agent_router
 from .ai_routes import router as ai_router
 from .attachment_routes import router as attachment_router
 from .chat_routes import router as chat_router
@@ -43,6 +44,7 @@ app.include_router(docs_router)
 app.include_router(summary_router)
 app.include_router(sync_router)
 app.include_router(ai_router)
+app.include_router(agent_router)
 
 
 @app.on_event("startup")
