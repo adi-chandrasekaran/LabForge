@@ -35,6 +35,13 @@ class RunStatus(str, Enum):
     error = "error"
 
 
+class AgentRunStatus(str, Enum):
+    pending = "pending"
+    running = "running"
+    completed = "completed"
+    failed = "failed"
+
+
 class User(Base):
     __tablename__ = "users"
 
@@ -44,6 +51,8 @@ class User(Base):
     role: Mapped[str] = mapped_column(String, default=UserRole.student.value)
     lab_id: Mapped[str] = mapped_column(String, default="local-lab")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    agent_conversations: Mapped[list["AgentConversation"]] = relationship(back_populates="owner")
 
 
 class Project(Base):
@@ -266,3 +275,57 @@ class SyncState(Base):
     last_sync_success_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     last_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     last_operation: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+
+
+class AgentConversation(Base):
+    __tablename__ = "agent_conversations"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    owner_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    title: Mapped[str] = mapped_column(String, default="Untitled NMR research conversation")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    owner: Mapped[User] = relationship(back_populates="agent_conversations")
+    runs: Mapped[list["AgentRun"]] = relationship(back_populates="conversation", cascade="all, delete-orphan")
+
+
+class AgentRun(Base):
+    __tablename__ = "agent_runs"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    conversation_id: Mapped[str] = mapped_column(ForeignKey("agent_conversations.id"), index=True)
+    user_request: Mapped[str] = mapped_column(Text)
+    provider: Mapped[str] = mapped_column(String, default="openai")
+    model: Mapped[str] = mapped_column(String)
+    status: Mapped[str] = mapped_column(String, default=AgentRunStatus.pending.value)
+    final_answer: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    data_availability: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    evidence_tool_call_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    provider_response_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    failure_code: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    failure_detail: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    conversation: Mapped["AgentConversation"] = relationship(back_populates="runs")
+    tool_calls: Mapped[list["AgentToolCall"]] = relationship(back_populates="run", cascade="all, delete-orphan")
+
+
+class AgentToolCall(Base):
+    __tablename__ = "agent_tool_calls"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    run_id: Mapped[str] = mapped_column(ForeignKey("agent_runs.id"), index=True)
+    sequence: Mapped[int] = mapped_column(Integer)
+    tool_name: Mapped[str] = mapped_column(String)
+    arguments: Mapped[dict] = mapped_column(JSON, default=dict)
+    result: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    status: Mapped[str] = mapped_column(String, default="pending")
+    error_code: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    run: Mapped["AgentRun"] = relationship(back_populates="tool_calls")
