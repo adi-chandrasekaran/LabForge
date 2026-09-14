@@ -28,6 +28,7 @@ from .schemas import (
     WorkflowUpdate,
 )
 from .sync import record_local_change
+from .services import lookup as lookup_service
 
 
 router = APIRouter(prefix="/api/v1/workflows", tags=["workflows"])
@@ -201,10 +202,7 @@ def _serialize_workflow(db: Session, workflow: Workflow) -> WorkflowRead:
 
 
 def _get_workflow(db: Session, workflow_id: str) -> Workflow:
-    workflow = db.get(Workflow, workflow_id)
-    if workflow is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workflow not found")
-    return workflow
+    return lookup_service.get_workflow(db, workflow_id)
 
 
 def _get_step(db: Session, workflow_id: str, step_id: str) -> WorkflowStep:
@@ -362,16 +360,13 @@ def list_workflows(
     project_id: Optional[str] = Query(default=None),
     db: Session = Depends(get_db),
 ) -> list[WorkflowRead]:
-    query = select(Workflow).order_by(Workflow.title)
-    workflows = db.scalars(query).all()
-    if tag is not None:
-        workflows = [workflow for workflow in workflows if tag in workflow.tags]
-    if library_state is not None:
-        workflows = [workflow for workflow in workflows if workflow.library_state == library_state]
-    if visibility is not None:
-        workflows = [workflow for workflow in workflows if workflow.visibility == visibility]
-    if project_id is not None:
-        workflows = [workflow for workflow in workflows if workflow.project_id == project_id]
+    workflows = lookup_service.list_workflows(
+        db,
+        tag=tag,
+        library_state=library_state,
+        visibility=visibility,
+        project_id=project_id,
+    )
     return [_serialize_workflow(db, workflow) for workflow in workflows]
 
 

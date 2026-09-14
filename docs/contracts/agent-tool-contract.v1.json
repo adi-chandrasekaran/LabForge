@@ -1,10 +1,10 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "contractVersion": "1.0.0",
-  "status": "design-only",
+  "status": "executable",
   "execution": {
     "llmOrchestration": false,
-    "toolRuntime": false,
+    "toolRuntime": true,
     "authorizationModel": "delegate to the existing backend request context and route policy"
   },
   "sharedContext": {

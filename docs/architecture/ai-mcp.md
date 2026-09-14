@@ -61,6 +61,27 @@ Current behavior:
 
 This is not a functioning MCP server yet. It is a placeholder manifest that proves the future MCP surface can be generated from the real HTTP contract instead of a hand-maintained duplicate.
 
+## Executable Agent Tool Layer
+
+`GET /api/v1/agent/tools` exposes the supported agent-tool catalog, including
+each tool's description, JSON input and output schema, permission statement,
+side-effect classification, and whether confirmation is required.
+
+`POST /api/v1/agent/tools/{tool_name}/invoke` validates an invocation and
+returns a stable `{ tool_name, ok, data, error }` response. The implementation
+delegates to the same shared application operations used by project, workflow,
+experiment, and chat routes; the tool registry does not query the database
+directly.
+
+`create_note` is the only write tool. It requires `confirmed: true`, then
+creates a lab-scoped `ChatMessage` through the existing backend rules. This is
+an execution guard, not a replacement for the future agent UI obtaining a
+person's confirmation immediately before the write.
+
+The tool layer is intentionally not an LLM provider, prompt loop, or MCP
+transport. Unsupported NMR data tools remain discoverable as unavailable rather
+than fabricating results.
+
 ## Frontend Surface
 
 `/ai-model` now loads backend placeholder data and renders:

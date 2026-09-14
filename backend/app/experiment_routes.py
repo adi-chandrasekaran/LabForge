@@ -20,6 +20,7 @@ from .schemas import (
     ExperimentWorkflowRunRead,
 )
 from .sync import record_local_change
+from .services import lookup as lookup_service
 
 
 router = APIRouter(prefix="/api/v1/experiments", tags=["experiments"])
@@ -117,10 +118,7 @@ def _serialize_experiment(db: Session, experiment: Experiment) -> ExperimentRead
 
 
 def _get_experiment(db: Session, experiment_id: str) -> Experiment:
-    experiment = db.get(Experiment, experiment_id)
-    if experiment is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Experiment not found")
-    return experiment
+    return lookup_service.get_experiment(db, experiment_id)
 
 
 def _get_experiment_workflow_run(db: Session, experiment_id: str, workflow_run_id: str) -> ExperimentWorkflowRun:
@@ -160,10 +158,7 @@ def list_experiments(
     project_id: Optional[str] = Query(default=None),
     db: Session = Depends(get_db),
 ) -> list[ExperimentRead]:
-    query = select(Experiment).order_by(Experiment.experiment_date.desc(), Experiment.created_at.desc())
-    if project_id is not None:
-        query = query.where(Experiment.project_id == project_id)
-    experiments = db.scalars(query).all()
+    experiments = lookup_service.list_experiments(db, project_id)
     return [_serialize_experiment(db, experiment) for experiment in experiments]
 
 

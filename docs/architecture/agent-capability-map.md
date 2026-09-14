@@ -2,15 +2,14 @@
 
 ## Status
 
-This is a design contract for a future agent adapter, not an LLM, MCP server,
-or executable tool runtime. Its source of truth is the existing FastAPI/OpenAPI
-surface. The machine-readable companion is
+This is an executable agent-tool contract, not an LLM or MCP server. Its source
+of truth is the authenticated FastAPI tool gateway at `/api/v1/agent/tools`.
+The machine-readable companion is
 `docs/contracts/agent-tool-contract.v1.json`.
 
-The application does not currently have an application-service layer: route
-handlers use SQLAlchemy directly. A future agent adapter must call the existing
-route/operation boundary (or a service extracted from that same logic) and must
-not introduce a second SQL query path or duplicate authorization.
+The gateway delegates to shared application operations used by the existing
+routes. It does not query SQLAlchemy models directly or duplicate the route
+layer's serialization, validation, authorization, and sync behavior.
 
 ## Cross-cutting rules
 
@@ -62,8 +61,6 @@ placeholder and must not be exposed as a calculating agent tool.
 
 ## Future implementation boundary
 
-The first executable agent milestone should add an adapter that validates the
-JSON contract, delegates to the listed operations under the authenticated
-request context, and emits audit data for writes. It should not add any LLM
-provider, API key storage, MCP transport, or NMR scientific calculation until
-the missing data models and validated calculation requirements exist.
+Future work can adapt this gateway to an LLM or MCP transport. It must not add
+provider keys, prompt orchestration, or NMR scientific calculations until the
+missing data models and validated calculation requirements exist.
