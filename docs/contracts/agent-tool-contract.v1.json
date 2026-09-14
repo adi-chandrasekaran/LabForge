@@ -1,0 +1,117 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "contractVersion": "1.0.0",
+  "status": "design-only",
+  "execution": {
+    "llmOrchestration": false,
+    "toolRuntime": false,
+    "authorizationModel": "delegate to the existing backend request context and route policy"
+  },
+  "sharedContext": {
+    "actor": "Resolved exclusively by the existing authentication adapter; never accepted as a tool input.",
+    "labScope": "Derived from the authenticated actor for chat operations.",
+    "dataScope": "The adapter must preserve the existing route's authorization and response shape; it must not query tables directly."
+  },
+  "tools": [
+    {
+      "name": "get_project",
+      "status": "supported",
+      "operation": { "method": "GET", "path": "/api/v1/projects/{project_id}" },
+      "input": { "required": ["project_id"], "properties": { "project_id": "string" } },
+      "permission": "read; preserve backend project visibility behavior",
+      "sideEffect": "none"
+    },
+    {
+      "name": "list_projects",
+      "status": "supported",
+      "operation": { "method": "GET", "path": "/api/v1/projects" },
+      "input": { "required": [], "properties": {} },
+      "permission": "read; preserve backend project visibility behavior",
+      "sideEffect": "none"
+    },
+    {
+      "name": "get_workflow",
+      "status": "supported",
+      "operation": { "method": "GET", "path": "/api/v1/workflows/{workflow_id}" },
+      "input": { "required": ["workflow_id"], "properties": { "workflow_id": "string" } },
+      "permission": "read; preserve backend workflow visibility behavior",
+      "sideEffect": "none"
+    },
+    {
+      "name": "list_workflows",
+      "status": "supported",
+      "operation": { "method": "GET", "path": "/api/v1/workflows" },
+      "input": { "required": [], "properties": { "tag": "string?", "library_state": "string?", "visibility": "string?", "project_id": "string?" } },
+      "permission": "read; preserve backend workflow visibility behavior",
+      "sideEffect": "none"
+    },
+    {
+      "name": "get_experiment",
+      "status": "supported",
+      "operation": { "method": "GET", "path": "/api/v1/experiments/{experiment_id}" },
+      "input": { "required": ["experiment_id"], "properties": { "experiment_id": "string" } },
+      "permission": "read; preserve backend experiment visibility behavior",
+      "sideEffect": "none"
+    },
+    {
+      "name": "list_experiments",
+      "status": "supported",
+      "operation": { "method": "GET", "path": "/api/v1/experiments" },
+      "input": { "required": [], "properties": { "project_id": "string?" } },
+      "permission": "read; preserve backend experiment visibility behavior",
+      "sideEffect": "none"
+    },
+    {
+      "name": "get_experiment_run_step",
+      "status": "supported-via-parent",
+      "operation": { "method": "GET", "path": "/api/v1/experiments/{experiment_id}" },
+      "input": { "required": ["experiment_id", "workflow_run_id", "step_run_id"], "properties": { "experiment_id": "string", "workflow_run_id": "string", "step_run_id": "string" } },
+      "permission": "read; select only from the returned parent experiment",
+      "sideEffect": "none"
+    },
+    {
+      "name": "search_experiment_notes",
+      "status": "supported-via-filter",
+      "operation": { "method": "GET", "path": "/api/v1/experiments" },
+      "input": { "required": ["query"], "properties": { "query": "non-empty string", "project_id": "string?", "limit": "integer 1..100, default 20" } },
+      "permission": "read; apply a case-insensitive substring filter only to notes returned by the existing list operation",
+      "sideEffect": "none",
+      "limitations": ["No server-side note search, relevance ranking, or pagination exists."]
+    },
+    {
+      "name": "list_chat_channels",
+      "status": "supported",
+      "operation": { "method": "GET", "path": "/api/v1/channels" },
+      "input": { "required": [], "properties": {} },
+      "permission": "read; existing backend constrains channels to the actor's lab_id",
+      "sideEffect": "none"
+    },
+    {
+      "name": "list_channel_messages",
+      "status": "supported",
+      "operation": { "method": "GET", "path": "/api/v1/channels/{channel_id}/messages" },
+      "input": { "required": ["channel_id"], "properties": { "channel_id": "string", "limit": "integer 1..500, default 200" } },
+      "permission": "read; existing backend verifies channel lab scope",
+      "sideEffect": "none"
+    },
+    {
+      "name": "create_note",
+      "status": "supported-as-chat-message",
+      "operation": { "method": "POST", "path": "/api/v1/channels/{channel_id}/messages" },
+      "input": { "required": ["channel_id", "body"], "properties": { "channel_id": "string", "body": "non-empty string", "referenced_workflow_id": "string?", "referenced_experiment_id": "string?" } },
+      "permission": "write; existing backend resolves the actor, verifies channel lab scope, validates optional references, and records the actor as author",
+      "sideEffect": "creates one ChatMessage; it does not update Experiment.notes or WorkflowStep.notes",
+      "confirmation": "A future agent runtime must obtain explicit user confirmation immediately before executing this write."
+    }
+  ],
+  "unavailableRequestedTools": [
+    { "name": "get_sample", "reason": "No Sample entity, route, or service exists." },
+    { "name": "list_samples", "reason": "No Sample entity, route, or service exists." },
+    { "name": "get_spectrum", "reason": "No Spectrum entity, spectral-file representation, route, or service exists." },
+    { "name": "compare_spectra", "reason": "No spectra or comparison backend logic exists." },
+    { "name": "get_peak_assignments", "reason": "No Peak or Assignment entity, route, or service exists." },
+    { "name": "find_residue", "reason": "No Protein, sequence, or Residue representation exists." },
+    { "name": "get_residue_shifts", "reason": "No Residue or chemical-shift representation exists." },
+    { "name": "calculate_chemical_shift_perturbation", "reason": "No chemical-shift data or calculation backend logic exists." }
+  ]
+}
