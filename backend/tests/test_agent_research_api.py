@@ -3,11 +3,39 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
+from sqlalchemy import select
 
-from backend.app.agent_research import AgentFinalAnswer, OpenAIResponsesResearchAssistant
+import json
+
+from backend.app.agent_research import (
+    AgentExecutionException,
+    AgentFinalAnswer,
+    AgentRunCreate,
+    OpenAIResponsesResearchAssistant,
+    ProviderResponse,
+    ProviderToolCall,
+    execute_run,
+)
 from backend.app.config import Settings
 from backend.app import database
 from backend.app.models import AgentRun, AgentToolCall, User
+
+
+class ScriptedProvider:
+    provider = "fake"
+    model = "fake-model"
+
+    def __init__(self, responses):
+        self.responses = list(responses)
+        self.inputs = []
+
+    def function_definitions(self):
+        return []
+
+    def respond(self, input_items, previous_response_id=None):
+        self.inputs.append((input_items, previous_response_id))
+        response = self.responses.pop(0)
+        return response(input_items, previous_response_id) if callable(response) else response
 
 
 def test_agent_status_is_safe_when_key_is_not_configured(client: TestClient) -> None:
@@ -97,3 +125,86 @@ def test_final_answer_schema_requires_retrieved_evidence_and_unavailable_wording
         data_availability="unavailable",
     )
     assert answer.evidence_tool_call_ids == []
+
+
+def test_execution_loop_persists_tool_audit_and_returns_results_to_next_turn(client: TestClient) -> None:
+    conversation = client.post("/api/v1/agent/conversations", json={"title": "Execution"}).json()
+    provider = ScriptedProvider([
+        ProviderResponse(id="response-1", tool_calls=[ProviderToolCall(call_id="call-1", name="get_project", arguments='{"project_id":"project-anc2"}')]),
+        ProviderResponse(id="response-2", output_text=json.dumps({
+            "answer": "The retrieved project is ANC2.",
+            "data_availability": "retrieved",
+            "evidence_tool_call_ids": [],
+        })),
+    ])
+    with database.SessionLocal() as db:
+        user = db.get(User, "user-dev-chen")
+        with pytest.raises(AgentExecutionException, match="invalid final response"):
+            execute_run(db, user, conversation["id"], AgentRunCreate(message="Which project is ANC2?"), provider)
+
+        failed = db.scalar(select(AgentRun).where(AgentRun.conversation_id == conversation["id"]))
+        assert failed.status == "failed"
+        assert failed.tool_calls[0].tool_name == "get_project"
+        assert json.loads(provider.inputs[1][0][0]["output"])["audit_tool_call_id"] == failed.tool_calls[0].id
+
+
+def test_execution_loop_rejects_write_tool_and_marks_run_failed(client: TestClient) -> None:
+    conversation = client.post("/api/v1/agent/conversations", json={"title": "Write rejection"}).json()
+    provider = ScriptedProvider([
+        ProviderResponse(id="response-1", tool_calls=[ProviderToolCall(call_id="call-1", name="create_note", arguments='{"channel_id":"channel-general","body":"no"}')]),
+        ProviderResponse(id="response-2", output_text="not json"),
+    ])
+    with database.SessionLocal() as db:
+        user = db.get(User, "user-dev-chen")
+        with pytest.raises(AgentExecutionException) as error:
+            execute_run(db, user, conversation["id"], AgentRunCreate(message="Write a note"), provider)
+        assert error.value.code == "invalid_final_response"
+        run = db.scalar(select(AgentRun).where(AgentRun.conversation_id == conversation["id"]))
+        assert run.tool_calls[0].error_code == "tool_write_forbidden"
+
+
+def test_execution_loop_returns_unknown_tool_error_to_provider(client: TestClient) -> None:
+    conversation = client.post("/api/v1/agent/conversations", json={"title": "Unknown tool"}).json()
+    provider = ScriptedProvider([
+        ProviderResponse(id="response-1", tool_calls=[ProviderToolCall(call_id="call-1", name="get_spectrum", arguments="{}")]),
+        ProviderResponse(id="response-2", output_text="not json"),
+    ])
+    with database.SessionLocal() as db:
+        user = db.get(User, "user-dev-chen")
+        with pytest.raises(AgentExecutionException):
+            execute_run(db, user, conversation["id"], AgentRunCreate(message="Get a spectrum"), provider)
+        run = db.scalar(select(AgentRun).where(AgentRun.conversation_id == conversation["id"]))
+        assert run.tool_calls[0].error_code == "tool_not_allowed"
+
+
+def test_execution_loop_accepts_successful_retrieval_evidence(client: TestClient) -> None:
+    conversation = client.post("/api/v1/agent/conversations", json={"title": "Evidence"}).json()
+
+    def final_response(inputs, _previous_response_id):
+        audit_id = json.loads(inputs[0]["output"])["audit_tool_call_id"]
+        return ProviderResponse(id="response-2", output_text=json.dumps({
+            "answer": "The retrieved project is ANC2.",
+            "data_availability": "retrieved",
+            "evidence_tool_call_ids": [audit_id],
+        }))
+
+    provider = ScriptedProvider([
+        ProviderResponse(id="response-1", tool_calls=[ProviderToolCall(call_id="call-1", name="get_project", arguments='{"project_id":"project-anc2"}')]),
+        final_response,
+    ])
+    with database.SessionLocal() as db:
+        user = db.get(User, "user-dev-chen")
+        run = execute_run(db, user, conversation["id"], AgentRunCreate(message="Which project is ANC2?"), provider)
+        assert run.status == "completed"
+        assert run.evidence_tool_call_ids == [run.tool_calls[0].id]
+
+
+def test_run_endpoint_persists_agent_unavailable_failure(client: TestClient) -> None:
+    conversation = client.post("/api/v1/agent/conversations", json={"title": "No provider"}).json()
+    response = client.post(f"/api/v1/agent/conversations/{conversation['id']}/runs", json={"message": "Which project is ANC2?"})
+
+    assert response.status_code == 503
+    assert response.json()["code"] == "agent_unavailable"
+    run = client.get(f"/api/v1/agent/conversations/{conversation['id']}/runs/{response.json()['run_id']}")
+    assert run.status_code == 200
+    assert run.json()["status"] == "failed"
