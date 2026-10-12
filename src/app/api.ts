@@ -4,6 +4,17 @@ const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined) || "h
 const API_ROOT = API_BASE.replace(/\/api\/v1$/, "");
 const SYNC_REFRESH_EVENT = "nmr-lab-sync-refresh";
 
+export interface WorkflowDraftRecord {
+  id: string;
+  operation: string;
+  payload: Record<string, unknown>;
+  status: "pending" | "confirmed" | "expired" | "stale" | "failed";
+  expiresAt: string;
+  createdAt: string;
+  decidedAt?: string | null;
+  failureDetail?: string | null;
+}
+
 interface ApiUser {
   id: string;
   email: string;
@@ -895,6 +906,24 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     window.dispatchEvent(new Event(SYNC_REFRESH_EVENT));
   }
   return payload;
+}
+
+type ApiWorkflowDraft = {
+  id: string; operation: string; payload: Record<string, unknown>; status: WorkflowDraftRecord["status"];
+  expires_at: string; created_at: string; decided_at?: string | null; failure_detail?: string | null;
+};
+
+function toWorkflowDraftRecord(draft: ApiWorkflowDraft): WorkflowDraftRecord {
+  return { id: draft.id, operation: draft.operation, payload: draft.payload, status: draft.status,
+    expiresAt: draft.expires_at, createdAt: draft.created_at, decidedAt: draft.decided_at, failureDetail: draft.failure_detail };
+}
+
+export async function fetchWorkflowDrafts(): Promise<WorkflowDraftRecord[]> {
+  return (await request<ApiWorkflowDraft[]>("/agent/workflow-drafts")).map(toWorkflowDraftRecord);
+}
+
+export async function confirmWorkflowDraft(draftId: string): Promise<WorkflowDraftRecord> {
+  return toWorkflowDraftRecord(await request<ApiWorkflowDraft>(`/agent/workflow-drafts/${draftId}/confirm`, { method: "POST" }));
 }
 
 function toWorkflowPageData(workflows: ApiWorkflow[]): WorkflowPageData {

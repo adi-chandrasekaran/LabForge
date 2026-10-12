@@ -9,6 +9,7 @@ import CalculatorPage from "./pages/CalculatorPage";
 import DocsPage from "./pages/DocsPage";
 import TeamsPage from "./pages/TeamsPage";
 import AIModelPage from "./pages/AIModelPage";
+import WorkflowDraftsPage from "./pages/WorkflowDraftsPage";
 
 export const router = createBrowserRouter([
   {
@@ -24,6 +25,7 @@ export const router = createBrowserRouter([
       { path: "calculator", Component: CalculatorPage },
       { path: "teams", Component: TeamsPage },
       { path: "ai-model", Component: AIModelPage },
+      { path: "workflow-drafts", Component: WorkflowDraftsPage },
     ],
   },
 ]);
