@@ -168,6 +168,68 @@ class SampleLigand(Base):
     ligand_id: Mapped[str] = mapped_column(ForeignKey("ligands.id"), index=True)
 
 
+class Spectrum(Base):
+    __tablename__ = "spectra"
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    lab_id: Mapped[str] = mapped_column(String, index=True)
+    owner_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    sample_id: Mapped[Optional[str]] = mapped_column(ForeignKey("samples.id"), nullable=True, index=True)
+    experiment_id: Mapped[Optional[str]] = mapped_column(ForeignKey("experiments.id"), nullable=True, index=True)
+    name: Mapped[str] = mapped_column(String, index=True)
+    experiment_type: Mapped[str] = mapped_column(String, default="HSQC")
+    nuclei: Mapped[list[str]] = mapped_column(JSON, default=list)
+    spectrometer_frequency_mhz: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    temperature_k: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    source_filename: Mapped[str] = mapped_column(String, default="")
+    status: Mapped[str] = mapped_column(String, default="processed")
+    extra_metadata: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    peaks: Mapped[list["Peak"]] = relationship(cascade="all, delete-orphan")
+
+
+class Peak(Base):
+    __tablename__ = "peaks"
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    spectrum_id: Mapped[str] = mapped_column(ForeignKey("spectra.id"), index=True)
+    label: Mapped[str] = mapped_column(String, default="")
+    positions_ppm: Mapped[list[float]] = mapped_column(JSON, default=list)
+    intensity: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    volume: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    linewidths_hz: Mapped[list[float]] = mapped_column(JSON, default=list)
+    extra_metadata: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    assignments: Mapped[list["Assignment"]] = relationship(cascade="all, delete-orphan")
+
+
+class Assignment(Base):
+    __tablename__ = "assignments"
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    peak_id: Mapped[str] = mapped_column(ForeignKey("peaks.id"), index=True)
+    residue_id: Mapped[str] = mapped_column(ForeignKey("residues.id"), index=True)
+    atom_names: Mapped[list[str]] = mapped_column(JSON, default=list)
+    confidence: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    status: Mapped[str] = mapped_column(String, default="tentative")
+    notes: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class ChemicalShift(Base):
+    __tablename__ = "chemical_shifts"
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    spectrum_id: Mapped[str] = mapped_column(ForeignKey("spectra.id"), index=True)
+    residue_id: Mapped[str] = mapped_column(ForeignKey("residues.id"), index=True)
+    peak_id: Mapped[Optional[str]] = mapped_column(ForeignKey("peaks.id"), nullable=True, index=True)
+    atom_name: Mapped[str] = mapped_column(String)
+    nucleus: Mapped[str] = mapped_column(String)
+    value_ppm: Mapped[float] = mapped_column(Float)
+    uncertainty_ppm: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
 class Workflow(Base):
     __tablename__ = "workflows"
 

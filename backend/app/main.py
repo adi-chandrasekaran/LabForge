@@ -20,6 +20,7 @@ from .sync_routes import router as sync_router
 from .user_routes import router as user_router
 from .workflow_routes import router as workflow_router
 from .nmr_domain_routes import router as nmr_domain_router
+from .nmr_spectral_routes import router as nmr_spectral_router
 
 
 settings = get_settings()
@@ -49,6 +50,7 @@ app.include_router(ai_router)
 app.include_router(agent_router)
 app.include_router(workflow_draft_router)
 app.include_router(nmr_domain_router)
+app.include_router(nmr_spectral_router)
 
 
 @app.on_event("startup")
