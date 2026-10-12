@@ -17,8 +17,27 @@ from backend.app.agent_research import (
     OpenAIResponsesResearchAssistant,
     ProviderResponse,
     ProviderToolCall,
+    classify_provider_error,
     execute_run,
 )
+
+
+@pytest.mark.parametrize(("message", "expected"), [
+    ("401 API key not valid", "invalid_api_key"),
+    ("403 permission denied", "project_permission_denied"),
+    ("429 quota exhausted", "provider_quota_exhausted"),
+    ("model not found", "model_unavailable"),
+])
+def test_gemini_error_classification_is_actionable_and_safe(message: str, expected: str) -> None:
+    code, detail = classify_provider_error(Exception(message))
+    assert code == expected
+    assert "test-secret" not in detail
+
+
+def test_provider_diagnostic_requires_no_key(client: TestClient) -> None:
+    response = client.post("/api/v1/agent/provider-diagnostic")
+    assert response.status_code == 200
+    assert response.json()["code"] == "agent_unavailable"
 from backend.app.config import Settings
 from backend.app import database
 from backend.app.models import AgentRun, AgentToolCall, User

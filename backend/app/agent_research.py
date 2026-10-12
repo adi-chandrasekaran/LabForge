@@ -90,6 +90,14 @@ class AgentStatusRead(BaseModel):
     detail: str
 
 
+class AgentProviderDiagnosticRead(BaseModel):
+    ok: bool
+    provider: str
+    model: str
+    code: Optional[str] = None
+    detail: str
+
+
 class AgentExecutionErrorRead(BaseModel):
     code: str
     message: str
@@ -285,6 +293,34 @@ class GeminiResearchAssistant:
             output_text=getattr(response, "text", "") or "",
         )
 
+    def preflight(self) -> AgentProviderDiagnosticRead:
+        if not self.configured:
+            return AgentProviderDiagnosticRead(ok=False, provider=self.provider, model=self.model, code="agent_unavailable", detail="Add a server-side Gemini API key before testing the provider.")
+        from google import genai
+        try:
+            genai.Client(api_key=self._settings.gemini_api_key).models.generate_content(
+                model=self.model, contents="Reply with OK.", config={"max_output_tokens": 4},
+            )
+        except Exception as error:
+            code, detail = classify_provider_error(error)
+            logger.warning("agent_provider_preflight_failed provider=gemini code=%s error_type=%s", code, type(error).__name__)
+            return AgentProviderDiagnosticRead(ok=False, provider=self.provider, model=self.model, code=code, detail=detail)
+        return AgentProviderDiagnosticRead(ok=True, provider=self.provider, model=self.model, detail="Gemini accepted a minimal server-side preflight request.")
+
+
+def classify_provider_error(error: Exception) -> tuple[str, str]:
+    """Map provider failures to actionable, non-secret messages for the UI."""
+    message = str(error).casefold()
+    if "api key" in message or "apikey" in message or "unauthenticated" in message or "401" in message:
+        return "invalid_api_key", "Gemini rejected the API key. Create a Gemini API key in Google AI Studio and restart the backend after setting it."
+    if "permission" in message or "forbidden" in message or "403" in message:
+        return "project_permission_denied", "Google denied this project access. Check that the key belongs to a project allowed to use the Gemini API."
+    if "quota" in message or "resource_exhausted" in message or "429" in message:
+        return "provider_quota_exhausted", "Gemini quota is currently unavailable for this project or model. Check the Google AI Studio project quota and try later."
+    if "model" in message and ("not found" in message or "unsupported" in message):
+        return "model_unavailable", "The configured Gemini model is unavailable to this key. Choose a model available in Google AI Studio and restart the backend."
+    return "provider_request_failed", "Gemini rejected the provider request. Use the server diagnostic result and verify the key, Google project permissions, and selected model."
+
 
 def assistant_status(settings: Optional[Settings] = None) -> AgentStatusRead:
     selected_settings = settings or get_settings()
@@ -303,6 +339,15 @@ def assistant_status(settings: Optional[Settings] = None) -> AgentStatusRead:
             detail="The NMR research assistant is unavailable because its server-side provider key is not configured.")
     return AgentStatusRead(available=True, provider=provider.provider, model=provider.model,
         detail="The selected NMR research assistant provider is configured.")
+
+
+def provider_diagnostic(settings: Optional[Settings] = None) -> AgentProviderDiagnosticRead:
+    provider = get_research_assistant(settings)
+    if isinstance(provider, GeminiResearchAssistant):
+        return provider.preflight()
+    if not provider.configured:
+        return AgentProviderDiagnosticRead(ok=False, provider=provider.provider, model=provider.model, code="agent_unavailable", detail="Add the provider key before testing the connection.")
+    return AgentProviderDiagnosticRead(ok=False, provider=provider.provider, model=provider.model, code="diagnostic_not_supported", detail="Connection diagnostics are not implemented for this provider.")
 
 
 def get_research_assistant(settings: Optional[Settings] = None) -> NMRResearchAssistant:
