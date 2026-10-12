@@ -90,15 +90,17 @@ owned `AgentConversation` records, `AgentRun` records, and ordered
 `AgentToolCall` records. Conversation and audit endpoints are authenticated and
 only return records owned by the current user.
 
-The server reads `NMR_LAB_OPENAI_API_KEY` only from its environment and uses
-`NMR_LAB_AGENT_MODEL` (default `gpt-5.5`) as model metadata. No route, audit
-record, log, or frontend state exposes the key. `GET /api/v1/agent/status`
-returns `agent_unavailable` when the key is absent.
+The server reads provider keys only from its environment. OpenAI uses
+`NMR_LAB_OPENAI_API_KEY` and `NMR_LAB_AGENT_MODEL`; Gemini uses
+`NMR_LAB_GEMINI_API_KEY` and `NMR_LAB_GEMINI_MODEL`. No route, audit record,
+log, or frontend state exposes a key. `GET /api/v1/agent/status` returns
+`agent_unavailable` when the selected provider is not configured.
 
-`OpenAIResponsesResearchAssistant` is the integration boundary for the OpenAI
-Responses API. Its function catalog is generated from PR 3's registry, but it
-includes only supported read tools: unavailable NMR tools and `create_note` are
-excluded. The permanent assistant instruction requires tool evidence for every
+The OpenAI Responses and Gemini provider adapters share one integration
+boundary. `NMR_LAB_AGENT_PROVIDER` selects `gemini` by default or `openai`
+when explicitly configured. Both generate their function catalog from PR 3's
+registry, so unavailable NMR tools and `create_note` remain excluded. The
+permanent assistant instruction requires tool evidence for every
 dataset-specific claim, prohibits invented experimental values, and requires a
 clear statement when data is unavailable.
 
@@ -107,8 +109,8 @@ clear statement when data is unavailable.
 `POST /api/v1/agent/conversations/{conversation_id}/runs` executes the
 read-only research assistant for an authenticated conversation. It persists the
 request as a running audit record, sends at most the ten most recent completed
-runs from that same owned conversation as context, and then calls the OpenAI
-Responses API with the permanent instructions and function definitions.
+runs from that same owned conversation as context, and then calls the selected
+provider with the permanent instructions and function definitions.
 
 Function calls are validated through the existing PR 3 registry and execute
 in-process with `confirmed: false`. Unknown, unavailable, malformed, failed,

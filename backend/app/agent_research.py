@@ -115,6 +115,7 @@ class AgentFinalAnswer(BaseModel):
 class NMRResearchAssistant(Protocol):
     provider: str
     model: str
+    configured: bool
 
     def function_definitions(self) -> list[dict[str, Any]]: ...
     def respond(self, input_items: list[dict[str, Any]], previous_response_id: Optional[str] = None) -> "ProviderResponse": ...
@@ -148,7 +149,7 @@ def read_only_function_definitions() -> list[dict[str, Any]]:
 
 
 class OpenAIResponsesResearchAssistant:
-    """Provider boundary only; PR 4 deliberately makes no network request."""
+    """OpenAI Responses implementation of the research-assistant provider."""
     provider = "openai"
 
     def __init__(self, settings: Optional[Settings] = None):
@@ -190,17 +191,127 @@ class OpenAIResponsesResearchAssistant:
         return ProviderResponse(id=response.id, tool_calls=calls, output_text=getattr(response, "output_text", ""))
 
 
+class GeminiResearchAssistant:
+    """Gemini implementation that preserves the shared read-only tool loop."""
+
+    provider = "gemini"
+
+    def __init__(self, settings: Optional[Settings] = None):
+        self._settings = settings or get_settings()
+        self.model = self._settings.gemini_model
+        self._contents: list[dict[str, Any]] = []
+
+    @property
+    def configured(self) -> bool:
+        return bool(self._settings.gemini_api_key)
+
+    def function_definitions(self) -> list[dict[str, Any]]:
+        return [
+            {
+                "name": tool["name"],
+                "description": tool["description"],
+                "parameters_json_schema": tool["parameters"],
+            }
+            for tool in read_only_function_definitions()
+        ]
+
+    def _initial_contents(self, input_items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        contents: list[dict[str, Any]] = []
+        for item in input_items:
+            role = item.get("role", "user")
+            if role not in {"user", "assistant"}:
+                continue
+            contents.append({
+                "role": "model" if role == "assistant" else "user",
+                "parts": [{"text": item.get("content", "")}],
+            })
+        return contents
+
+    def _function_responses(self, input_items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        parts: list[dict[str, Any]] = []
+        for item in input_items:
+            if item.get("type") != "function_call_output":
+                continue
+            try:
+                result = json.loads(item.get("output", "{}"))
+            except (TypeError, ValueError, json.JSONDecodeError):
+                result = _tool_error("unknown", "invalid_tool_result", "The tool result could not be decoded.")
+            parts.append({
+                "function_response": {
+                    "name": item.get("name", "tool_result"),
+                    "response": result,
+                }
+            })
+        return [{"role": "user", "parts": parts}] if parts else []
+
+    def respond(self, input_items: list[dict[str, Any]], previous_response_id: Optional[str] = None) -> ProviderResponse:
+        if not self.configured:
+            raise AgentExecutionException(503, "agent_unavailable", "The NMR research assistant provider is not configured.")
+        from google import genai
+
+        if previous_response_id is None:
+            self._contents = self._initial_contents(input_items)
+        else:
+            self._contents.extend(self._function_responses(input_items))
+
+        client = genai.Client(api_key=self._settings.gemini_api_key)
+        try:
+            response = client.models.generate_content(
+                model=self.model,
+                contents=self._contents,
+                config={
+                    "system_instruction": ASSISTANT_INSTRUCTIONS,
+                    "tools": [{"function_declarations": self.function_definitions()}],
+                },
+            )
+        except Exception as error:
+            logger.warning("agent_provider_failure provider=gemini error_type=%s", type(error).__name__)
+            raise AgentExecutionException(502, "provider_failed", "The research assistant provider could not complete the request.") from error
+
+        candidate = response.candidates[0].content if getattr(response, "candidates", None) else None
+        if candidate is not None:
+            self._contents.append(candidate)
+        calls = [
+            ProviderToolCall(
+                call_id=getattr(call, "id", None) or f"gemini-call-{uuid4().hex}",
+                name=call.name,
+                arguments=json.dumps(call.args or {}),
+            )
+            for call in (getattr(response, "function_calls", None) or [])
+        ]
+        return ProviderResponse(
+            id=getattr(response, "response_id", None) or f"gemini-response-{uuid4().hex}",
+            tool_calls=calls,
+            output_text=getattr(response, "text", "") or "",
+        )
+
+
 def assistant_status(settings: Optional[Settings] = None) -> AgentStatusRead:
-    provider = OpenAIResponsesResearchAssistant(settings)
+    selected_settings = settings or get_settings()
+    try:
+        provider = get_research_assistant(selected_settings)
+    except AgentExecutionException as error:
+        return AgentStatusRead(
+            available=False,
+            code=error.code,
+            provider=selected_settings.agent_provider,
+            model="unavailable",
+            detail=error.message,
+        )
     if not provider.configured:
-        return AgentStatusRead(available=False, code="agent_unavailable", model=provider.model,
+        return AgentStatusRead(available=False, code="agent_unavailable", provider=provider.provider, model=provider.model,
             detail="The NMR research assistant is unavailable because its server-side provider key is not configured.")
-    return AgentStatusRead(available=True, model=provider.model,
-        detail="The OpenAI Responses provider is configured. Model execution is introduced in PR 5.")
+    return AgentStatusRead(available=True, provider=provider.provider, model=provider.model,
+        detail="The selected NMR research assistant provider is configured.")
 
 
 def get_research_assistant(settings: Optional[Settings] = None) -> NMRResearchAssistant:
-    return OpenAIResponsesResearchAssistant(settings)
+    selected_settings = settings or get_settings()
+    if selected_settings.agent_provider == "gemini":
+        return GeminiResearchAssistant(selected_settings)
+    if selected_settings.agent_provider == "openai":
+        return OpenAIResponsesResearchAssistant(selected_settings)
+    raise AgentExecutionException(503, "agent_provider_unsupported", "The selected NMR research assistant provider is not supported.")
 
 
 class AgentExecutionException(Exception):
@@ -317,7 +428,12 @@ def _execute_provider_tool_call(db: Session, user: User, run: AgentRun, sequence
     db.commit()
     logger.info("agent_tool_call run_id=%s tool=%s ok=%s", run.id, call.name, response["ok"])
     response_for_model = {**response, "audit_tool_call_id": call_id}
-    return {"type": "function_call_output", "call_id": call.call_id, "output": json.dumps(response_for_model)}
+    return {
+        "type": "function_call_output",
+        "call_id": call.call_id,
+        "name": call.name,
+        "output": json.dumps(response_for_model),
+    }
 
 
 def _validate_final_answer(run: AgentRun, text: str) -> AgentFinalAnswer:
@@ -342,7 +458,7 @@ def execute_run(db: Session, user: User, conversation_id: str, payload: AgentRun
     db.commit()
     logger.info("agent_run_started run_id=%s provider=%s model=%s", run.id, provider.provider, provider.model)
 
-    if isinstance(provider, OpenAIResponsesResearchAssistant) and not provider.configured:
+    if not getattr(provider, "configured", True):
         _mark_failed(db, run, "agent_unavailable", "The NMR research assistant provider is not configured.")
         raise AgentExecutionException(503, "agent_unavailable", "The NMR research assistant provider is not configured.", run.id)
 
