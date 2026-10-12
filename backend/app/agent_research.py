@@ -489,6 +489,8 @@ def execute_run(db: Session, user: User, conversation_id: str, payload: AgentRun
     except AgentExecutionException as error:
         if run.status != "failed":
             _mark_failed(db, run, error.code, error.message)
+        if error.run_id is None:
+            error.run_id = run.id
         raise
     except Exception as error:
         _mark_failed(db, run, "provider_failed", "The research assistant could not complete the request.")

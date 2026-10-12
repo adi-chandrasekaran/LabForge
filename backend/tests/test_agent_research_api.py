@@ -269,3 +269,23 @@ def test_run_endpoint_persists_agent_unavailable_failure(client: TestClient) -> 
     run = client.get(f"/api/v1/agent/conversations/{conversation['id']}/runs/{response.json()['run_id']}")
     assert run.status_code == 200
     assert run.json()["status"] == "failed"
+
+
+def test_provider_failure_keeps_the_persisted_run_reference(client: TestClient) -> None:
+    class FailingProvider:
+        provider = "fake"
+        model = "fake-model"
+        configured = True
+
+        def function_definitions(self):
+            return []
+
+        def respond(self, input_items, previous_response_id=None):
+            raise AgentExecutionException(502, "provider_failed", "The provider rejected the request.")
+
+    conversation = client.post("/api/v1/agent/conversations", json={"title": "Provider failure"}).json()
+    with database.SessionLocal() as db:
+        user = db.get(User, "user-dev-chen")
+        with pytest.raises(AgentExecutionException) as error:
+            execute_run(db, user, conversation["id"], AgentRunCreate(message="Which project is ANC2?"), FailingProvider())
+        assert error.value.run_id is not None
