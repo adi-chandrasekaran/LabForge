@@ -88,9 +88,9 @@ def test_read_only_function_catalog_preserves_agent_tool_definitions() -> None:
 
     assert assistant.configured is True
     assert assistant.model == "test-model"
-    assert {"get_project", "list_experiments", "search_experiment_notes"}.issubset(names)
+    assert {"get_project", "list_experiments", "search_experiment_notes", "get_sample", "get_spectrum", "calculate_chemical_shift_perturbation"}.issubset(names)
     assert "create_note" not in names
-    assert "get_spectrum" not in names
+    assert "get_spectrum" in names
     get_project = next(item for item in functions if item["name"] == "get_project")
     assert get_project["strict"] is True
     assert get_project["parameters"]["properties"]["project_id"]["minLength"] == 1
@@ -253,7 +253,7 @@ def test_execution_loop_rejects_write_tool_and_marks_run_failed(client: TestClie
 def test_execution_loop_returns_unknown_tool_error_to_provider(client: TestClient) -> None:
     conversation = client.post("/api/v1/agent/conversations", json={"title": "Unknown tool"}).json()
     provider = ScriptedProvider([
-        ProviderResponse(id="response-1", tool_calls=[ProviderToolCall(call_id="call-1", name="get_spectrum", arguments="{}")]),
+        ProviderResponse(id="response-1", tool_calls=[ProviderToolCall(call_id="call-1", name="does_not_exist", arguments="{}")]),
         ProviderResponse(id="response-2", output_text="not json"),
     ])
     with database.SessionLocal() as db:

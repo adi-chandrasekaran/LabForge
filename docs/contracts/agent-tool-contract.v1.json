@@ -95,6 +95,38 @@
       "sideEffect": "none"
     },
     {
+      "name": "get_sample", "status": "supported", "operation": { "method": "GET", "path": "/api/v1/nmr/samples/{sample_id}" },
+      "input": { "required": ["sample_id"], "properties": { "sample_id": "string" } }, "permission": "read; lab scoped", "sideEffect": "none"
+    },
+    {
+      "name": "list_samples", "status": "supported", "operation": { "method": "GET", "path": "/api/v1/nmr/samples" },
+      "input": { "required": [], "properties": { "project_id": "string?" } }, "permission": "read; lab scoped", "sideEffect": "none"
+    },
+    {
+      "name": "get_spectrum", "status": "supported", "operation": { "method": "GET", "path": "/api/v1/nmr/spectra/{spectrum_id}" },
+      "input": { "required": ["spectrum_id"], "properties": { "spectrum_id": "string" } }, "permission": "read; lab scoped", "sideEffect": "none"
+    },
+    {
+      "name": "get_peak_assignments", "status": "supported", "operation": { "method": "GET", "path": "/api/v1/nmr/assignments" },
+      "input": { "required": ["peak_id"], "properties": { "peak_id": "string" } }, "permission": "read through lab-scoped spectrum", "sideEffect": "none"
+    },
+    {
+      "name": "find_residue", "status": "supported", "operation": { "method": "GET", "path": "/api/v1/nmr/residues" },
+      "input": { "required": ["protein_id"], "properties": { "protein_id": "string", "sequence_number": "integer?", "query": "string?", "limit": "integer 1..100" } }, "permission": "read through lab-scoped protein", "sideEffect": "none"
+    },
+    {
+      "name": "get_residue_shifts", "status": "supported", "operation": { "method": "GET", "path": "/api/v1/nmr/chemical-shifts" },
+      "input": { "required": ["residue_id"], "properties": { "residue_id": "string", "spectrum_id": "string?" } }, "permission": "read; lab scoped", "sideEffect": "none"
+    },
+    {
+      "name": "compare_spectra", "status": "supported", "operation": { "method": "POST", "path": "/api/v1/nmr/analyses/compare-spectra" },
+      "input": { "required": ["reference_spectrum_id", "comparison_spectrum_id"], "properties": { "reference_spectrum_id": "string", "comparison_spectrum_id": "string", "nuclei": "string[]?" } }, "permission": "read and deterministic calculation; lab scoped", "sideEffect": "none"
+    },
+    {
+      "name": "calculate_chemical_shift_perturbation", "status": "supported", "operation": { "method": "POST", "path": "/api/v1/nmr/analyses/chemical-shift-perturbation" },
+      "input": { "required": ["reference_spectrum_id", "comparison_spectrum_id"], "properties": { "reference_spectrum_id": "string", "comparison_spectrum_id": "string", "nuclei": "string[]?", "nucleus_weights": "object?" } }, "permission": "read and deterministic calculation; lab scoped", "sideEffect": "none"
+    },
+    {
       "name": "create_note",
       "status": "supported-as-chat-message",
       "operation": { "method": "POST", "path": "/api/v1/channels/{channel_id}/messages" },
@@ -104,14 +136,5 @@
       "confirmation": "A future agent runtime must obtain explicit user confirmation immediately before executing this write."
     }
   ],
-  "unavailableRequestedTools": [
-    { "name": "get_sample", "reason": "Sample storage and services exist; agent activation is deferred." },
-    { "name": "list_samples", "reason": "Sample storage and services exist; agent activation is deferred." },
-    { "name": "get_spectrum", "reason": "Spectrum storage and services exist; agent activation is deferred." },
-    { "name": "compare_spectra", "reason": "Spectrum comparison exists; agent activation is deferred." },
-    { "name": "get_peak_assignments", "reason": "Peak and Assignment storage exist; agent activation is deferred." },
-    { "name": "find_residue", "reason": "Protein and Residue storage exist; residue-search activation is deferred." },
-    { "name": "get_residue_shifts", "reason": "Chemical-shift storage exists; agent activation is deferred." },
-    { "name": "calculate_chemical_shift_perturbation", "reason": "Chemical-shift perturbation calculation exists; agent activation is deferred." }
-  ]
+  "unavailableRequestedTools": []
 }
