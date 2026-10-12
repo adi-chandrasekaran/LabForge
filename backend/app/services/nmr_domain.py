@@ -154,8 +154,12 @@ def _assert_unique_residue(db: Session, payload: ResidueCreate, exclude_id: Opti
     if existing and existing.id != exclude_id: raise HTTPException(status.HTTP_409_CONFLICT, "Residue position already exists for this protein")
 
 
-def create_residue(db: Session, user: User, payload: ResidueCreate) -> Residue:
+def validate_residue_create(db: Session, user: User, payload: ResidueCreate) -> None:
     protein = get_protein(db, user, payload.protein_id); _assert_owner(protein, user); _assert_unique_residue(db, payload)
+
+
+def create_residue(db: Session, user: User, payload: ResidueCreate) -> Residue:
+    validate_residue_create(db, user, payload)
     residue = Residue(id=_id("residue"), **payload.model_dump()); db.add(residue)
     record_local_change(db, "nmr.residue.create"); db.commit(); db.refresh(residue); return residue
 
