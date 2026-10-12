@@ -72,6 +72,13 @@ def create_draft(payload: DraftCreate, db: Session = Depends(get_db)) -> DraftRe
 def get_draft(draft_id: str, db: Session = Depends(get_db)) -> DraftRead:
     return _owned(db, get_current_user(db), draft_id)
 
+@router.get("", response_model=list[DraftRead])
+def list_drafts(db: Session = Depends(get_db)) -> list[DraftRead]:
+    user = get_current_user(db)
+    return list(db.scalars(select(AgentWorkflowDraft).where(
+        AgentWorkflowDraft.owner_id == user.id,
+    ).order_by(AgentWorkflowDraft.created_at.desc())))
+
 @router.post("/{draft_id}/confirm", response_model=DraftRead)
 def confirm_draft(draft_id: str, db: Session = Depends(get_db)) -> DraftRead:
     user = get_current_user(db); draft = _owned(db, user, draft_id)

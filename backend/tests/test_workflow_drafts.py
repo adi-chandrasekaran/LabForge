@@ -21,3 +21,10 @@ def test_draft_is_owner_scoped(client: TestClient) -> None:
     # The local mock identity is fixed, but an unknown id must not reveal a draft.
     assert client.get("/api/v1/agent/workflow-drafts/not-a-draft").status_code == 404
     assert draft["status"] == "pending"
+
+
+def test_owner_can_list_own_drafts(client: TestClient) -> None:
+    client.post("/api/v1/agent/workflow-drafts", json={"operation": "create_workflow", "payload": {"title": "Review me"}})
+    response = client.get("/api/v1/agent/workflow-drafts")
+    assert response.status_code == 200
+    assert response.json()[0]["payload"]["title"] == "Review me"
