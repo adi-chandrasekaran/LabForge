@@ -108,10 +108,10 @@
     { "name": "get_sample", "reason": "Sample storage and services exist; agent activation is deferred." },
     { "name": "list_samples", "reason": "Sample storage and services exist; agent activation is deferred." },
     { "name": "get_spectrum", "reason": "Spectrum storage and services exist; agent activation is deferred." },
-    { "name": "compare_spectra", "reason": "Spectral storage exists; comparison logic is deferred." },
+    { "name": "compare_spectra", "reason": "Spectrum comparison exists; agent activation is deferred." },
     { "name": "get_peak_assignments", "reason": "Peak and Assignment storage exist; agent activation is deferred." },
     { "name": "find_residue", "reason": "Protein and Residue storage exist; residue-search activation is deferred." },
     { "name": "get_residue_shifts", "reason": "Chemical-shift storage exists; agent activation is deferred." },
-    { "name": "calculate_chemical_shift_perturbation", "reason": "Chemical-shift storage exists; perturbation calculation logic is deferred." }
+    { "name": "calculate_chemical_shift_perturbation", "reason": "Chemical-shift perturbation calculation exists; agent activation is deferred." }
   ]
 }

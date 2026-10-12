@@ -264,11 +264,11 @@ UNAVAILABLE_TOOLS = [
     UnavailableToolRead(name="get_sample", reason="Sample storage and services exist, but the agent adapter is deferred to the NMR tool activation PR."),
     UnavailableToolRead(name="list_samples", reason="Sample storage and services exist, but the agent adapter is deferred to the NMR tool activation PR."),
     UnavailableToolRead(name="get_spectrum", reason="Spectrum storage and services exist, but the agent adapter is deferred to the NMR tool activation PR."),
-    UnavailableToolRead(name="compare_spectra", reason="Spectral storage exists, but comparison logic has not been implemented."),
+    UnavailableToolRead(name="compare_spectra", reason="Spectrum comparison exists, but its agent adapter is deferred to the NMR tool activation PR."),
     UnavailableToolRead(name="get_peak_assignments", reason="Peak and Assignment storage exist, but the agent adapter is deferred to the NMR tool activation PR."),
     UnavailableToolRead(name="find_residue", reason="Protein and Residue storage exist, but residue search is deferred to the NMR tool activation PR."),
     UnavailableToolRead(name="get_residue_shifts", reason="Chemical-shift storage exists, but the agent adapter is deferred to the NMR tool activation PR."),
-    UnavailableToolRead(name="calculate_chemical_shift_perturbation", reason="Chemical-shift storage exists, but perturbation calculation logic has not been implemented."),
+    UnavailableToolRead(name="calculate_chemical_shift_perturbation", reason="Chemical-shift perturbation calculation exists, but its agent adapter is deferred to the NMR tool activation PR."),
 ]
 
 
