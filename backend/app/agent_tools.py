@@ -18,10 +18,15 @@ from .schemas import (
     ExperimentStepRunRead,
     ProjectRead,
     WorkflowRead,
+    SampleRead, ProteinRead, LigandRead, ResidueRead, SpectrumRead, PeakRead, AssignmentRead, ChemicalShiftRead,
+    SpectrumComparisonRead, SpectrumComparisonRequest, ChemicalShiftPerturbationRead, ChemicalShiftPerturbationRequest,
 )
 from .services import lookup as lookup_service
+from .services import nmr_domain, nmr_spectral, nmr_analysis
 from .workflow_routes import _serialize_workflow
 from .workflow_draft_routes import DraftRead
+from .nmr_domain_routes import _sample, _protein, _ligand, _residue
+from .nmr_spectral_routes import _spectrum, _peak, _assignment, _shift
 
 
 class ToolInput(BaseModel):
@@ -81,6 +86,27 @@ class CreateNoteInput(ToolInput):
     body: str = Field(min_length=1)
     referenced_workflow_id: Optional[str] = Field(default=None, min_length=1)
     referenced_experiment_id: Optional[str] = Field(default=None, min_length=1)
+
+
+class GetSampleInput(ToolInput): sample_id: str = Field(min_length=1)
+class ListSamplesInput(ToolInput): project_id: Optional[str] = Field(default=None, min_length=1)
+class GetProteinInput(ToolInput): protein_id: str = Field(min_length=1)
+class ListProteinsInput(ToolInput): project_id: Optional[str] = Field(default=None, min_length=1)
+class GetLigandInput(ToolInput): ligand_id: str = Field(min_length=1)
+class ListLigandsInput(ToolInput): project_id: Optional[str] = Field(default=None, min_length=1)
+class GetSpectrumInput(ToolInput): spectrum_id: str = Field(min_length=1)
+class ListSpectraInput(ToolInput): sample_id: Optional[str] = Field(default=None, min_length=1)
+class GetPeakInput(ToolInput): peak_id: str = Field(min_length=1)
+class ListPeaksInput(ToolInput): spectrum_id: str = Field(min_length=1)
+class GetPeakAssignmentsInput(ToolInput): peak_id: str = Field(min_length=1)
+class FindResidueInput(ToolInput):
+    protein_id: str = Field(min_length=1)
+    sequence_number: Optional[int] = Field(default=None, ge=1)
+    query: Optional[str] = Field(default=None, min_length=1)
+    limit: int = Field(default=20, ge=1, le=100)
+class GetResidueShiftsInput(ToolInput):
+    residue_id: str = Field(min_length=1)
+    spectrum_id: Optional[str] = Field(default=None, min_length=1)
 
 
 class ProposeWorkflowChangeInput(ToolInput):
@@ -225,6 +251,30 @@ def _create_note(db: Session, user: User, payload: CreateNoteInput) -> ChatMessa
     return _serialize_message(db, message)
 
 
+def _get_sample(db: Session,user:User,payload:GetSampleInput)->SampleRead: return _sample(db,nmr_domain.get_sample(db,user,payload.sample_id))
+def _list_samples(db:Session,user:User,payload:ListSamplesInput)->list[SampleRead]: return [_sample(db,x) for x in nmr_domain.list_samples(db,user,payload.project_id)]
+def _get_protein(db:Session,user:User,payload:GetProteinInput)->ProteinRead: return _protein(db,nmr_domain.get_protein(db,user,payload.protein_id))
+def _list_proteins(db:Session,user:User,payload:ListProteinsInput)->list[ProteinRead]: return [_protein(db,x) for x in nmr_domain.list_proteins(db,user,payload.project_id)]
+def _get_ligand(db:Session,user:User,payload:GetLigandInput)->LigandRead: return _ligand(nmr_domain.get_ligand(db,user,payload.ligand_id))
+def _list_ligands(db:Session,user:User,payload:ListLigandsInput)->list[LigandRead]: return [_ligand(x) for x in nmr_domain.list_ligands(db,user,payload.project_id)]
+def _get_spectrum(db:Session,user:User,payload:GetSpectrumInput)->SpectrumRead: return _spectrum(db,nmr_spectral.get_spectrum(db,user,payload.spectrum_id))
+def _list_spectra(db:Session,user:User,payload:ListSpectraInput)->list[SpectrumRead]: return [_spectrum(db,x) for x in nmr_spectral.list_spectra(db,user,payload.sample_id)]
+def _get_peak(db:Session,user:User,payload:GetPeakInput)->PeakRead: return _peak(db,nmr_spectral.get_peak(db,user,payload.peak_id))
+def _list_peaks(db:Session,user:User,payload:ListPeaksInput)->list[PeakRead]: return [_peak(db,x) for x in nmr_spectral.list_peaks(db,user,payload.spectrum_id)]
+def _get_peak_assignments(db:Session,user:User,payload:GetPeakAssignmentsInput)->list[AssignmentRead]: return [_assignment(x) for x in nmr_spectral.list_assignments(db,user,payload.peak_id)]
+def _find_residue(db:Session,user:User,payload:FindResidueInput)->list[ResidueRead]:
+    items=nmr_domain.list_residues(db,user,payload.protein_id)
+    if payload.sequence_number is not None: items=[x for x in items if x.sequence_number==payload.sequence_number]
+    if payload.query:
+        needle=payload.query.casefold(); items=[x for x in items if needle in x.residue_name.casefold() or needle in x.one_letter_code.casefold() or needle in str(x.sequence_number)]
+    return [_residue(x) for x in items[:payload.limit]]
+def _get_residue_shifts(db:Session,user:User,payload:GetResidueShiftsInput)->list[ChemicalShiftRead]:
+    nmr_domain.get_residue(db,user,payload.residue_id)
+    return [_shift(x) for x in nmr_spectral.list_shifts(db,user,payload.spectrum_id,payload.residue_id)]
+def _compare_spectra(db:Session,user:User,payload:SpectrumComparisonRequest)->SpectrumComparisonRead: return nmr_analysis.compare_spectra(db,user,payload)
+def _calculate_csp(db:Session,user:User,payload:ChemicalShiftPerturbationRequest)->ChemicalShiftPerturbationRead: return nmr_analysis.calculate_csp(db,user,payload)
+
+
 def _propose_workflow_change(
     db: Session, user: User, payload: ProposeWorkflowChangeInput, context: ToolExecutionContext,
 ) -> Any:
@@ -249,6 +299,21 @@ TOOL_REGISTRY: dict[str, ToolDefinition] = {
     "list_chat_channels": ToolDefinition("list_chat_channels", "List channels scoped to the authenticated user's lab.", EmptyInput, TypeAdapter(list[ChatChannelRead]), "read; backend constrains channels to the actor's lab_id", "none", False, _list_chat_channels),
     "list_channel_messages": ToolDefinition("list_channel_messages", "List messages in one lab-scoped channel.", ListChannelMessagesInput, TypeAdapter(list[ChatMessageRead]), "read; backend verifies channel lab scope", "none", False, _list_channel_messages),
     "create_note": ToolDefinition("create_note", "Create an auditable chat-message note in one channel.", CreateNoteInput, TypeAdapter(ChatMessageRead), "write; backend resolves actor, verifies lab scope, and validates references", "creates one ChatMessage; never updates embedded experiment or workflow notes", True, _create_note),
+    "get_sample": ToolDefinition("get_sample","Retrieve one lab-scoped NMR sample and its protein/ligand links.",GetSampleInput,TypeAdapter(SampleRead),"read; lab scoped","none",False,_get_sample),
+    "list_samples": ToolDefinition("list_samples","List lab-scoped NMR samples, optionally by project.",ListSamplesInput,TypeAdapter(list[SampleRead]),"read; lab scoped","none",False,_list_samples),
+    "get_protein": ToolDefinition("get_protein","Retrieve one lab-scoped protein with residue count.",GetProteinInput,TypeAdapter(ProteinRead),"read; lab scoped","none",False,_get_protein),
+    "list_proteins": ToolDefinition("list_proteins","List lab-scoped proteins, optionally by project.",ListProteinsInput,TypeAdapter(list[ProteinRead]),"read; lab scoped","none",False,_list_proteins),
+    "get_ligand": ToolDefinition("get_ligand","Retrieve one lab-scoped ligand.",GetLigandInput,TypeAdapter(LigandRead),"read; lab scoped","none",False,_get_ligand),
+    "list_ligands": ToolDefinition("list_ligands","List lab-scoped ligands, optionally by project.",ListLigandsInput,TypeAdapter(list[LigandRead]),"read; lab scoped","none",False,_list_ligands),
+    "get_spectrum": ToolDefinition("get_spectrum","Retrieve one stored spectrum with acquisition metadata and peak count.",GetSpectrumInput,TypeAdapter(SpectrumRead),"read; lab scoped","none",False,_get_spectrum),
+    "list_spectra": ToolDefinition("list_spectra","List stored spectra, optionally for one sample.",ListSpectraInput,TypeAdapter(list[SpectrumRead]),"read; lab scoped","none",False,_list_spectra),
+    "get_peak": ToolDefinition("get_peak","Retrieve one stored peak with positions and assignment count.",GetPeakInput,TypeAdapter(PeakRead),"read through lab-scoped parent spectrum","none",False,_get_peak),
+    "list_peaks": ToolDefinition("list_peaks","List stored peaks for one spectrum.",ListPeaksInput,TypeAdapter(list[PeakRead]),"read through lab-scoped parent spectrum","none",False,_list_peaks),
+    "get_peak_assignments": ToolDefinition("get_peak_assignments","Return stored residue/atom assignments for one peak.",GetPeakAssignmentsInput,TypeAdapter(list[AssignmentRead]),"read through lab-scoped parent spectrum","none",False,_get_peak_assignments),
+    "find_residue": ToolDefinition("find_residue","Find stored residues within one protein by position or text.",FindResidueInput,TypeAdapter(list[ResidueRead]),"read through lab-scoped protein","none",False,_find_residue),
+    "get_residue_shifts": ToolDefinition("get_residue_shifts","Return stored experimental chemical shifts for one residue, optionally in one spectrum.",GetResidueShiftsInput,TypeAdapter(list[ChemicalShiftRead]),"read; lab scoped","none",False,_get_residue_shifts),
+    "compare_spectra": ToolDefinition("compare_spectra","Compare stored shifts by matching residue, nucleus, and atom; return signed deltas and unmatched counts.",SpectrumComparisonRequest,TypeAdapter(SpectrumComparisonRead),"read and deterministic calculation over lab-scoped spectra","none",False,_compare_spectra),
+    "calculate_chemical_shift_perturbation": ToolDefinition("calculate_chemical_shift_perturbation","Calculate weighted CSP from stored matched shifts and return formula, weights, and components.",ChemicalShiftPerturbationRequest,TypeAdapter(ChemicalShiftPerturbationRead),"read and deterministic calculation over lab-scoped spectra","none",False,_calculate_csp),
     "propose_workflow_change": ToolDefinition(
         "propose_workflow_change", "Prepare one reviewable workflow-change draft. It never changes a workflow; the owner must separately confirm the saved draft.",
         ProposeWorkflowChangeInput,
@@ -261,14 +326,6 @@ TOOL_REGISTRY: dict[str, ToolDefinition] = {
 
 
 UNAVAILABLE_TOOLS = [
-    UnavailableToolRead(name="get_sample", reason="Sample storage and services exist, but the agent adapter is deferred to the NMR tool activation PR."),
-    UnavailableToolRead(name="list_samples", reason="Sample storage and services exist, but the agent adapter is deferred to the NMR tool activation PR."),
-    UnavailableToolRead(name="get_spectrum", reason="Spectrum storage and services exist, but the agent adapter is deferred to the NMR tool activation PR."),
-    UnavailableToolRead(name="compare_spectra", reason="Spectrum comparison exists, but its agent adapter is deferred to the NMR tool activation PR."),
-    UnavailableToolRead(name="get_peak_assignments", reason="Peak and Assignment storage exist, but the agent adapter is deferred to the NMR tool activation PR."),
-    UnavailableToolRead(name="find_residue", reason="Protein and Residue storage exist, but residue search is deferred to the NMR tool activation PR."),
-    UnavailableToolRead(name="get_residue_shifts", reason="Chemical-shift storage exists, but the agent adapter is deferred to the NMR tool activation PR."),
-    UnavailableToolRead(name="calculate_chemical_shift_perturbation", reason="Chemical-shift perturbation calculation exists, but its agent adapter is deferred to the NMR tool activation PR."),
 ]
 
 

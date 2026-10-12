@@ -40,28 +40,25 @@ layer's serialization, validation, authorization, and sync behavior.
 | Experiment-note search | `search_experiment_notes` | `GET /api/v1/experiments` plus local filter | required `query`; optional `project_id`, `limit` | Read; case-insensitive substring matching on the returned `notes` field only. |
 | Lab context | `list_chat_channels`, `list_channel_messages` | `GET /api/v1/channels`; `GET /api/v1/channels/{channel_id}/messages` | channel id and optional limit for messages | Read; existing backend scopes chat to the actor's lab. |
 | Scoped note creation | `create_note` | `POST /api/v1/channels/{channel_id}/messages` | `channel_id`, `body`; optional workflow/experiment references | Write; existing backend sets author, enforces lab scope, and validates references. Requires runtime confirmation. |
+| NMR entities | `get_sample`, `list_samples`, `get_protein`, `list_proteins`, `get_ligand`, `list_ligands` | `/api/v1/nmr/{samples|proteins|ligands}` | entity IDs and optional project filter | Read; service-enforced lab scope. |
+| Spectral data | `get_spectrum`, `list_spectra`, `get_peak`, `list_peaks`, `get_peak_assignments` | `/api/v1/nmr/{spectra|peaks|assignments}` | spectrum, sample, or peak IDs | Read through the lab-scoped parent spectrum. |
+| Residue data | `find_residue`, `get_residue_shifts` | `/api/v1/nmr/{residues|chemical-shifts}` | protein/residue IDs, optional position/text/spectrum filters | Read; returns stored values only. |
+| Shift analysis | `compare_spectra`, `calculate_chemical_shift_perturbation` | `/api/v1/nmr/analyses/*` | two spectrum IDs; optional nuclei/weights | Deterministic service calculation; returns source IDs, components, formula, and weights. |
 
 `search_experiment_notes` is deliberately limited: there is no server-side
 full-text search, ranker, or pagination. The future adapter may filter only the
 experiments returned by the existing list operation, then truncate to the
 requested limit (default 20, maximum 100).
 
-## Requested tools that cannot be implemented from current backend logic
+## Requested NMR tools
 
-| Tool | Reason |
-| --- | --- |
-| `get_sample`, `list_samples` | No Sample model, table, API, or service. |
-| `get_spectrum`, `compare_spectra` | No Spectrum model, spectral file format, or comparison logic. |
-| `get_peak_assignments` | No Peak or Assignment model, table, API, or service. |
-| `find_residue` | Protein and Residue storage now exist; the agent adapter is deferred to the NMR tool activation PR. |
-| `get_residue_shifts` | No chemical-shift representation exists yet. |
-| `calculate_chemical_shift_perturbation` | No shift data or calculation backend implementation. |
+All originally requested NMR tools now have executable, service-backed registry entries. The discovery response therefore has no unavailable requested tools.
 
 The existing `NMR Readiness Scoring` item is a static analysis-module
 placeholder and must not be exposed as a calculating agent tool.
 
 ## Future implementation boundary
 
-Future work can adapt this gateway to an LLM or MCP transport. It must not add
-provider keys, prompt orchestration, or NMR scientific calculations until the
-missing data models and validated calculation requirements exist.
+The registry remains the boundary for LLM and future MCP transports. Provider
+keys stay server-side, and model calls cannot bypass tool validation, lab
+scope, stored evidence, or deterministic calculation services.

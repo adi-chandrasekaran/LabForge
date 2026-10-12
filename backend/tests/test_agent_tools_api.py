@@ -11,19 +11,18 @@ def invoke(client, tool_name: str, arguments: dict | None = None, confirmed: boo
     )
 
 
-def test_agent_tool_catalog_exposes_schemas_permissions_and_unavailable_tools(client) -> None:
+def test_agent_tool_catalog_exposes_nmr_schemas_and_permissions(client) -> None:
     response = client.get("/api/v1/agent/tools")
     assert response.status_code == 200
     payload = response.json()
 
     tools = {tool["name"]: tool for tool in payload["tools"]}
-    assert {"get_project", "get_experiment", "create_note"}.issubset(tools)
+    assert {"get_project", "get_experiment", "create_note", "get_sample", "get_spectrum", "calculate_chemical_shift_perturbation"}.issubset(tools)
     assert tools["get_experiment"]["input_schema"]["required"] == ["experiment_id"]
     assert tools["create_note"]["confirmation_required"] is True
     assert tools["create_note"]["side_effect"].startswith("creates one ChatMessage")
     assert "properties" in tools["get_project"]["output_schema"]
-    unavailable = {tool["name"] for tool in payload["unavailable_tools"]}
-    assert {"get_sample", "get_spectrum", "calculate_chemical_shift_perturbation"}.issubset(unavailable)
+    assert payload["unavailable_tools"] == []
 
 
 def test_project_workflow_and_experiment_tools_return_structured_results(client) -> None:
@@ -109,9 +108,9 @@ def test_note_search_validation_and_deterministic_errors(client) -> None:
         "details": None,
     }
 
-    unavailable = invoke(client, "get_spectrum")
-    assert unavailable.status_code == 501
-    assert unavailable.json()["error"]["code"] == "tool_unavailable"
+    invalid_nmr = invoke(client, "get_spectrum")
+    assert invalid_nmr.status_code == 422
+    assert invalid_nmr.json()["error"]["code"] == "invalid_input"
 
     unknown = invoke(client, "does_not_exist")
     assert unknown.status_code == 404
