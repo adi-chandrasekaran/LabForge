@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from enum import Enum
 from typing import Optional
-from sqlalchemy import Date, DateTime, ForeignKey, Integer, JSON, String, Text, func
+from sqlalchemy import Date, DateTime, Float, ForeignKey, Integer, JSON, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .database import Base
 
@@ -78,6 +78,94 @@ class ProjectMember(Base):
     role: Mapped[str] = mapped_column(String, default=AccessRole.viewer.value)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class Sample(Base):
+    __tablename__ = "samples"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    lab_id: Mapped[str] = mapped_column(String, index=True)
+    project_id: Mapped[Optional[str]] = mapped_column(ForeignKey("projects.id"), nullable=True, index=True)
+    owner_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    name: Mapped[str] = mapped_column(String, index=True)
+    description: Mapped[str] = mapped_column(Text, default="")
+    sample_type: Mapped[str] = mapped_column(String, default="protein")
+    concentration_value: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    concentration_unit: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    buffer: Mapped[str] = mapped_column(Text, default="")
+    ph: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    volume_ul: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    status: Mapped[str] = mapped_column(String, default="active")
+    extra_metadata: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    protein_links: Mapped[list["SampleProtein"]] = relationship(cascade="all, delete-orphan")
+    ligand_links: Mapped[list["SampleLigand"]] = relationship(cascade="all, delete-orphan")
+
+
+class Protein(Base):
+    __tablename__ = "proteins"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    lab_id: Mapped[str] = mapped_column(String, index=True)
+    project_id: Mapped[Optional[str]] = mapped_column(ForeignKey("projects.id"), nullable=True, index=True)
+    owner_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    name: Mapped[str] = mapped_column(String, index=True)
+    construct_name: Mapped[str] = mapped_column(String, default="")
+    sequence: Mapped[str] = mapped_column(Text, default="")
+    isotope_labels: Mapped[list[str]] = mapped_column(JSON, default=list)
+    molecular_weight_da: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    notes: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    residues: Mapped[list["Residue"]] = relationship(cascade="all, delete-orphan")
+
+
+class Ligand(Base):
+    __tablename__ = "ligands"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    lab_id: Mapped[str] = mapped_column(String, index=True)
+    project_id: Mapped[Optional[str]] = mapped_column(ForeignKey("projects.id"), nullable=True, index=True)
+    owner_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    name: Mapped[str] = mapped_column(String, index=True)
+    identifier: Mapped[str] = mapped_column(String, default="")
+    molecular_formula: Mapped[str] = mapped_column(String, default="")
+    smiles: Mapped[str] = mapped_column(Text, default="")
+    molecular_weight_da: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    notes: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class Residue(Base):
+    __tablename__ = "residues"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    protein_id: Mapped[str] = mapped_column(ForeignKey("proteins.id"), index=True)
+    sequence_number: Mapped[int] = mapped_column(Integer)
+    insertion_code: Mapped[str] = mapped_column(String, default="")
+    residue_name: Mapped[str] = mapped_column(String)
+    one_letter_code: Mapped[str] = mapped_column(String)
+    notes: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class SampleProtein(Base):
+    __tablename__ = "sample_proteins"
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    sample_id: Mapped[str] = mapped_column(ForeignKey("samples.id"), index=True)
+    protein_id: Mapped[str] = mapped_column(ForeignKey("proteins.id"), index=True)
+
+
+class SampleLigand(Base):
+    __tablename__ = "sample_ligands"
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    sample_id: Mapped[str] = mapped_column(ForeignKey("samples.id"), index=True)
+    ligand_id: Mapped[str] = mapped_column(ForeignKey("ligands.id"), index=True)
 
 
 class Workflow(Base):

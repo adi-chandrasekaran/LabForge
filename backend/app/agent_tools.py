@@ -261,12 +261,12 @@ TOOL_REGISTRY: dict[str, ToolDefinition] = {
 
 
 UNAVAILABLE_TOOLS = [
-    UnavailableToolRead(name="get_sample", reason="No Sample entity, route, or service exists."),
-    UnavailableToolRead(name="list_samples", reason="No Sample entity, route, or service exists."),
+    UnavailableToolRead(name="get_sample", reason="Sample storage and services exist, but the agent adapter is deferred to the NMR tool activation PR."),
+    UnavailableToolRead(name="list_samples", reason="Sample storage and services exist, but the agent adapter is deferred to the NMR tool activation PR."),
     UnavailableToolRead(name="get_spectrum", reason="No Spectrum entity, spectral-file representation, route, or service exists."),
     UnavailableToolRead(name="compare_spectra", reason="No spectra or comparison backend logic exists."),
     UnavailableToolRead(name="get_peak_assignments", reason="No Peak or Assignment entity, route, or service exists."),
-    UnavailableToolRead(name="find_residue", reason="No Protein, sequence, or Residue representation exists."),
+    UnavailableToolRead(name="find_residue", reason="Protein and Residue storage exist, but residue search is deferred to the NMR tool activation PR."),
     UnavailableToolRead(name="get_residue_shifts", reason="No Residue or chemical-shift representation exists."),
     UnavailableToolRead(name="calculate_chemical_shift_perturbation", reason="No chemical-shift data or calculation backend logic exists."),
 ]
