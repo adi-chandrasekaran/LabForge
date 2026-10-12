@@ -109,6 +109,7 @@ The API is versioned under `/api/v1`. FastAPI generates `/openapi.json` and inte
 - Agent conversations and their run/tool-call audit records are owner-scoped. PR 4 exposes their retrieval APIs only; PR 5 will create and execute runs.
 - `GET /api/v1/agent/status` intentionally reports configuration availability without revealing a provider secret.
 - Running a research-assistant conversation is read-only. The execution loop uses only the supported non-writing tool definitions and records every model tool request and result in the run audit.
+- The selected provider is configured through server environment variables. Gemini is the development default; OpenAI remains explicitly selectable without changing the agent API contract.
 
 Future routes may add an MCP transport and analysis execution.
 

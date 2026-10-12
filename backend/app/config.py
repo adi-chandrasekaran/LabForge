@@ -29,8 +29,11 @@ class Settings(BaseModel):
     supabase_url: Optional[str] = None
     supabase_project_ref: Optional[str] = None
     tigris_bucket: Optional[str] = None
+    agent_provider: str = "gemini"
     openai_api_key: Optional[str] = None
     agent_model: str = "gpt-5.5"
+    gemini_api_key: Optional[str] = None
+    gemini_model: str = "gemini-2.5-flash"
 
     @property
     def data_dir(self) -> Path:
@@ -80,6 +83,9 @@ def get_settings() -> Settings:
         supabase_url=os.getenv("NMR_LAB_SUPABASE_URL"),
         supabase_project_ref=os.getenv("NMR_LAB_SUPABASE_PROJECT_REF"),
         tigris_bucket=os.getenv("NMR_LAB_TIGRIS_BUCKET"),
+        agent_provider=os.getenv("NMR_LAB_AGENT_PROVIDER", "gemini"),
         openai_api_key=os.getenv("NMR_LAB_OPENAI_API_KEY"),
         agent_model=os.getenv("NMR_LAB_AGENT_MODEL", "gpt-5.5"),
+        gemini_api_key=os.getenv("NMR_LAB_GEMINI_API_KEY"),
+        gemini_model=os.getenv("NMR_LAB_GEMINI_MODEL", "gemini-2.5-flash"),
     )

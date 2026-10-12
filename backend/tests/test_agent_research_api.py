@@ -6,11 +6,14 @@ from pydantic import ValidationError
 from sqlalchemy import select
 
 import json
+import copy
+from types import SimpleNamespace
 
 from backend.app.agent_research import (
     AgentExecutionException,
     AgentFinalAnswer,
     AgentRunCreate,
+    GeminiResearchAssistant,
     OpenAIResponsesResearchAssistant,
     ProviderResponse,
     ProviderToolCall,
@@ -45,8 +48,8 @@ def test_agent_status_is_safe_when_key_is_not_configured(client: TestClient) -> 
     assert response.json() == {
         "available": False,
         "code": "agent_unavailable",
-        "provider": "openai",
-        "model": "gpt-5.5",
+        "provider": "gemini",
+        "model": "gemini-2.5-flash",
         "detail": "The NMR research assistant is unavailable because its server-side provider key is not configured.",
     }
     assert "key" not in response.text.casefold() or "configured" in response.text.casefold()
@@ -65,6 +68,64 @@ def test_read_only_function_catalog_preserves_agent_tool_definitions() -> None:
     get_project = next(item for item in functions if item["name"] == "get_project")
     assert get_project["strict"] is True
     assert get_project["parameters"]["properties"]["project_id"]["minLength"] == 1
+
+
+def test_gemini_provider_translates_the_read_only_catalog_and_messages() -> None:
+    assistant = GeminiResearchAssistant(Settings(gemini_api_key="test-secret", gemini_model="test-gemini"))
+    functions = assistant.function_definitions()
+    names = {item["name"] for item in functions}
+
+    assert assistant.configured is True
+    assert assistant.model == "test-gemini"
+    assert "get_project" in names
+    assert "create_note" not in names
+    get_project = next(item for item in functions if item["name"] == "get_project")
+    assert get_project["parameters_json_schema"]["properties"]["project_id"]["minLength"] == 1
+    assert assistant._initial_contents([
+        {"role": "user", "content": "Find ANC2"},
+        {"role": "assistant", "content": "I will retrieve it."},
+    ]) == [
+        {"role": "user", "parts": [{"text": "Find ANC2"}]},
+        {"role": "model", "parts": [{"text": "I will retrieve it."}]},
+    ]
+    responses = assistant._function_responses([{
+        "type": "function_call_output",
+        "name": "get_project",
+        "output": '{"tool_name":"get_project","ok":true}',
+    }])
+    assert responses[0]["parts"][0]["function_response"]["name"] == "get_project"
+
+
+def test_gemini_provider_maps_function_calls_and_results(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured = []
+
+    class FakeModels:
+        def generate_content(self, **request):
+            captured.append(copy.deepcopy(request))
+            return SimpleNamespace(
+                response_id="gemini-response-1",
+                candidates=[SimpleNamespace(content={"role": "model", "parts": []})],
+                function_calls=[SimpleNamespace(id="gemini-call-1", name="get_project", args={"project_id": "project-anc2"})],
+                text="",
+            )
+
+    class FakeClient:
+        models = FakeModels()
+
+    monkeypatch.setattr("google.genai.Client", lambda api_key: FakeClient())
+    assistant = GeminiResearchAssistant(Settings(gemini_api_key="test-secret"))
+    first = assistant.respond([{"role": "user", "content": "Get ANC2"}])
+    second = assistant.respond([{
+        "type": "function_call_output",
+        "call_id": first.tool_calls[0].call_id,
+        "name": "get_project",
+        "output": '{"tool_name":"get_project","ok":true}',
+    }], previous_response_id=first.id)
+
+    assert first.tool_calls[0].name == "get_project"
+    assert second.id == "gemini-response-1"
+    assert captured[0]["config"]["tools"][0]["function_declarations"]
+    assert captured[1]["contents"][-1]["parts"][0]["function_response"]["name"] == "get_project"
 
 
 def test_conversation_and_empty_audit_history_are_owned(client: TestClient) -> None:
@@ -208,3 +269,23 @@ def test_run_endpoint_persists_agent_unavailable_failure(client: TestClient) -> 
     run = client.get(f"/api/v1/agent/conversations/{conversation['id']}/runs/{response.json()['run_id']}")
     assert run.status_code == 200
     assert run.json()["status"] == "failed"
+
+
+def test_provider_failure_keeps_the_persisted_run_reference(client: TestClient) -> None:
+    class FailingProvider:
+        provider = "fake"
+        model = "fake-model"
+        configured = True
+
+        def function_definitions(self):
+            return []
+
+        def respond(self, input_items, previous_response_id=None):
+            raise AgentExecutionException(502, "provider_failed", "The provider rejected the request.")
+
+    conversation = client.post("/api/v1/agent/conversations", json={"title": "Provider failure"}).json()
+    with database.SessionLocal() as db:
+        user = db.get(User, "user-dev-chen")
+        with pytest.raises(AgentExecutionException) as error:
+            execute_run(db, user, conversation["id"], AgentRunCreate(message="Which project is ANC2?"), FailingProvider())
+        assert error.value.run_id is not None
