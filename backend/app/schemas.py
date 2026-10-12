@@ -9,6 +9,102 @@ class HealthResponse(BaseModel):
     database: str
 
 
+class NMRDomainBase(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+class ProteinCreate(NMRDomainBase):
+    name: str = Field(min_length=1)
+    project_id: Optional[str] = None
+    construct_name: str = ""
+    sequence: str = ""
+    isotope_labels: list[str] = Field(default_factory=list)
+    molecular_weight_da: Optional[float] = Field(default=None, gt=0)
+    notes: str = ""
+
+
+class ProteinUpdate(ProteinCreate):
+    pass
+
+
+class ProteinRead(ProteinCreate):
+    id: str
+    lab_id: str
+    owner_id: str
+    residue_count: int = 0
+    created_at: datetime
+    updated_at: datetime
+
+
+class LigandCreate(NMRDomainBase):
+    name: str = Field(min_length=1)
+    project_id: Optional[str] = None
+    identifier: str = ""
+    molecular_formula: str = ""
+    smiles: str = ""
+    molecular_weight_da: Optional[float] = Field(default=None, gt=0)
+    notes: str = ""
+
+
+class LigandUpdate(LigandCreate):
+    pass
+
+
+class LigandRead(LigandCreate):
+    id: str
+    lab_id: str
+    owner_id: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class ResidueCreate(NMRDomainBase):
+    protein_id: str = Field(min_length=1)
+    sequence_number: int = Field(ge=1)
+    insertion_code: str = ""
+    residue_name: str = Field(min_length=1, max_length=3)
+    one_letter_code: str = Field(min_length=1, max_length=1)
+    notes: str = ""
+
+
+class ResidueUpdate(ResidueCreate):
+    pass
+
+
+class ResidueRead(ResidueCreate):
+    id: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class SampleCreate(NMRDomainBase):
+    name: str = Field(min_length=1)
+    project_id: Optional[str] = None
+    description: str = ""
+    sample_type: str = "protein"
+    concentration_value: Optional[float] = Field(default=None, ge=0)
+    concentration_unit: Optional[str] = None
+    buffer: str = ""
+    ph: Optional[float] = Field(default=None, ge=0, le=14)
+    volume_ul: Optional[float] = Field(default=None, ge=0)
+    status: str = "active"
+    extra_metadata: dict = Field(default_factory=dict)
+    protein_ids: list[str] = Field(default_factory=list)
+    ligand_ids: list[str] = Field(default_factory=list)
+
+
+class SampleUpdate(SampleCreate):
+    pass
+
+
+class SampleRead(SampleCreate):
+    id: str
+    lab_id: str
+    owner_id: str
+    created_at: datetime
+    updated_at: datetime
+
+
 class UserRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

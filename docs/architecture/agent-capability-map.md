@@ -53,7 +53,8 @@ requested limit (default 20, maximum 100).
 | `get_sample`, `list_samples` | No Sample model, table, API, or service. |
 | `get_spectrum`, `compare_spectra` | No Spectrum model, spectral file format, or comparison logic. |
 | `get_peak_assignments` | No Peak or Assignment model, table, API, or service. |
-| `find_residue`, `get_residue_shifts` | No Protein/sequence/Residue or chemical-shift representation. |
+| `find_residue` | Protein and Residue storage now exist; the agent adapter is deferred to the NMR tool activation PR. |
+| `get_residue_shifts` | No chemical-shift representation exists yet. |
 | `calculate_chemical_shift_perturbation` | No shift data or calculation backend implementation. |
 
 The existing `NMR Readiness Scoring` item is a static analysis-module

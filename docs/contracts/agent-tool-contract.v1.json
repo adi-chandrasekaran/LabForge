@@ -105,12 +105,12 @@
     }
   ],
   "unavailableRequestedTools": [
-    { "name": "get_sample", "reason": "No Sample entity, route, or service exists." },
-    { "name": "list_samples", "reason": "No Sample entity, route, or service exists." },
+    { "name": "get_sample", "reason": "Sample storage and services exist; agent activation is deferred." },
+    { "name": "list_samples", "reason": "Sample storage and services exist; agent activation is deferred." },
     { "name": "get_spectrum", "reason": "No Spectrum entity, spectral-file representation, route, or service exists." },
     { "name": "compare_spectra", "reason": "No spectra or comparison backend logic exists." },
     { "name": "get_peak_assignments", "reason": "No Peak or Assignment entity, route, or service exists." },
-    { "name": "find_residue", "reason": "No Protein, sequence, or Residue representation exists." },
+    { "name": "find_residue", "reason": "Protein and Residue storage exist; residue-search activation is deferred." },
     { "name": "get_residue_shifts", "reason": "No Residue or chemical-shift representation exists." },
     { "name": "calculate_chemical_shift_perturbation", "reason": "No chemical-shift data or calculation backend logic exists." }
   ]
