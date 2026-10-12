@@ -105,6 +105,64 @@ class SampleRead(SampleCreate):
     updated_at: datetime
 
 
+class SpectrumCreate(NMRDomainBase):
+    name: str = Field(min_length=1)
+    sample_id: Optional[str] = None
+    experiment_id: Optional[str] = None
+    experiment_type: str = Field(default="HSQC", min_length=1)
+    nuclei: list[str] = Field(min_length=1)
+    spectrometer_frequency_mhz: Optional[float] = Field(default=None, gt=0)
+    temperature_k: Optional[float] = Field(default=None, gt=0)
+    source_filename: str = ""
+    status: str = "processed"
+    extra_metadata: dict = Field(default_factory=dict)
+
+
+class SpectrumRead(SpectrumCreate):
+    id: str; lab_id: str; owner_id: str; peak_count: int = 0; created_at: datetime; updated_at: datetime
+
+
+class PeakCreate(NMRDomainBase):
+    spectrum_id: str = Field(min_length=1)
+    label: str = ""
+    positions_ppm: list[float] = Field(min_length=1, max_length=4)
+    intensity: Optional[float] = None
+    volume: Optional[float] = None
+    linewidths_hz: list[float] = Field(default_factory=list, max_length=4)
+    extra_metadata: dict = Field(default_factory=dict)
+
+
+class PeakRead(PeakCreate):
+    id: str; assignment_count: int = 0; created_at: datetime; updated_at: datetime
+
+
+class AssignmentCreate(NMRDomainBase):
+    peak_id: str = Field(min_length=1)
+    residue_id: str = Field(min_length=1)
+    atom_names: list[str] = Field(min_length=1)
+    confidence: Optional[float] = Field(default=None, ge=0, le=1)
+    status: str = "tentative"
+    notes: str = ""
+
+
+class AssignmentRead(AssignmentCreate):
+    id: str; created_at: datetime; updated_at: datetime
+
+
+class ChemicalShiftCreate(NMRDomainBase):
+    spectrum_id: str = Field(min_length=1)
+    residue_id: str = Field(min_length=1)
+    peak_id: Optional[str] = None
+    atom_name: str = Field(min_length=1)
+    nucleus: str = Field(min_length=1)
+    value_ppm: float
+    uncertainty_ppm: Optional[float] = Field(default=None, ge=0)
+
+
+class ChemicalShiftRead(ChemicalShiftCreate):
+    id: str; created_at: datetime; updated_at: datetime
+
+
 class UserRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
