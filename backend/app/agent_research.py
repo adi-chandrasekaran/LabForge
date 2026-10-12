@@ -310,15 +310,19 @@ class GeminiResearchAssistant:
 
 def classify_provider_error(error: Exception) -> tuple[str, str]:
     """Map provider failures to actionable, non-secret messages for the UI."""
-    message = str(error).casefold()
-    if "api key" in message or "apikey" in message or "unauthenticated" in message or "401" in message:
+    status_code = getattr(error, "code", None) or getattr(error, "status", None)
+    # google-genai keeps the API response in ``message`` rather than always in str(error).
+    message = " ".join(str(part) for part in (getattr(error, "message", ""), str(error))).casefold()
+    if status_code == 401 or "api key" in message or "apikey" in message or "unauthenticated" in message:
         return "invalid_api_key", "Gemini rejected the API key. Create a Gemini API key in Google AI Studio and restart the backend after setting it."
-    if "permission" in message or "forbidden" in message or "403" in message:
+    if status_code == 403 or "permission" in message or "forbidden" in message:
         return "project_permission_denied", "Google denied this project access. Check that the key belongs to a project allowed to use the Gemini API."
-    if "quota" in message or "resource_exhausted" in message or "429" in message:
+    if status_code == 429 or "quota" in message or "resource_exhausted" in message:
         return "provider_quota_exhausted", "Gemini quota is currently unavailable for this project or model. Check the Google AI Studio project quota and try later."
-    if "model" in message and ("not found" in message or "unsupported" in message):
+    if status_code == 404 or ("model" in message and ("not found" in message or "unsupported" in message)):
         return "model_unavailable", "The configured Gemini model is unavailable to this key. Choose a model available in Google AI Studio and restart the backend."
+    if status_code == 400:
+        return "invalid_provider_request", "Gemini rejected this connection request (HTTP 400). The API key may be invalid or restricted, or the selected model is not available to this project."
     return "provider_request_failed", "Gemini rejected the provider request. Use the server diagnostic result and verify the key, Google project permissions, and selected model."
 
 

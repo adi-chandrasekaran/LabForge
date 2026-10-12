@@ -34,6 +34,13 @@ def test_gemini_error_classification_is_actionable_and_safe(message: str, expect
     assert "test-secret" not in detail
 
 
+def test_gemini_error_classification_uses_structured_client_status() -> None:
+    class ProviderError(Exception):
+        code = 403
+        message = "opaque"
+    assert classify_provider_error(ProviderError())[0] == "project_permission_denied"
+
+
 def test_provider_diagnostic_requires_no_key(client: TestClient) -> None:
     response = client.post("/api/v1/agent/provider-diagnostic")
     assert response.status_code == 200
