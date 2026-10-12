@@ -163,6 +163,54 @@ class ChemicalShiftRead(ChemicalShiftCreate):
     id: str; created_at: datetime; updated_at: datetime
 
 
+class SpectrumComparisonRequest(NMRDomainBase):
+    reference_spectrum_id: str = Field(min_length=1)
+    comparison_spectrum_id: str = Field(min_length=1)
+    nuclei: Optional[list[str]] = None
+
+
+class ShiftDeltaRead(BaseModel):
+    residue_id: str
+    sequence_number: int
+    residue_name: str
+    atom_name: str
+    nucleus: str
+    reference_ppm: float
+    comparison_ppm: float
+    delta_ppm: float
+
+
+class SpectrumComparisonRead(BaseModel):
+    reference_spectrum_id: str
+    comparison_spectrum_id: str
+    matched_shift_count: int
+    reference_only_count: int
+    comparison_only_count: int
+    deltas: list[ShiftDeltaRead]
+
+
+class ChemicalShiftPerturbationRequest(SpectrumComparisonRequest):
+    nucleus_weights: dict[str, float] = Field(default_factory=lambda: {"1H": 1.0, "15N": 0.154})
+
+
+class ResiduePerturbationRead(BaseModel):
+    residue_id: str
+    sequence_number: int
+    residue_name: str
+    matched_atoms: list[str]
+    component_deltas_ppm: dict[str, float]
+    perturbation_ppm: float
+
+
+class ChemicalShiftPerturbationRead(BaseModel):
+    reference_spectrum_id: str
+    comparison_spectrum_id: str
+    formula: str
+    nucleus_weights: dict[str, float]
+    residue_count: int
+    residues: list[ResiduePerturbationRead]
+
+
 class UserRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
