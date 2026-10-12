@@ -144,7 +144,7 @@ def read_only_function_definitions() -> list[dict[str, Any]]:
             "strict": True,
         }
         for tool in TOOL_REGISTRY.values()
-        if not tool.confirmation_required and tool.side_effect == "none"
+        if tool.model_callable or (not tool.confirmation_required and tool.side_effect == "none")
     ]
 
 
@@ -389,7 +389,7 @@ def _tool_error(name: str, code: str, message: str) -> dict[str, Any]:
 
 
 def _execute_provider_tool_call(db: Session, user: User, run: AgentRun, sequence: int, call: ProviderToolCall) -> dict[str, Any]:
-    from .agent_tools import TOOL_REGISTRY, ToolInvocationException, ToolInvocationRequest, error_response, invoke
+    from .agent_tools import TOOL_REGISTRY, ToolExecutionContext, ToolInvocationException, ToolInvocationRequest, error_response, invoke
 
     call_id = f"agent-tool-call-{uuid4().hex}"
     try:
@@ -403,11 +403,14 @@ def _execute_provider_tool_call(db: Session, user: User, run: AgentRun, sequence
         tool = TOOL_REGISTRY.get(call.name)
         if tool is None:
             response = _tool_error(call.name, "tool_not_allowed", "This tool is not available to the research assistant.")
-        elif tool.confirmation_required or tool.side_effect != "none":
+        elif not tool.model_callable and (tool.confirmation_required or tool.side_effect != "none"):
             response = _tool_error(call.name, "tool_write_forbidden", "The research assistant may execute read-only tools only.")
         else:
             try:
-                response = invoke(db, user, call.name, ToolInvocationRequest(arguments=arguments, confirmed=False)).model_dump(mode="json")
+                response = invoke(
+                    db, user, call.name, ToolInvocationRequest(arguments=arguments, confirmed=False),
+                    context=ToolExecutionContext(conversation_id=run.conversation_id, run_id=run.id),
+                ).model_dump(mode="json")
             except ToolInvocationException as error:
                 response = error_response(call.name, error).model_dump(mode="json")
 

@@ -52,9 +52,7 @@ def _step_values(data: WorkflowStepCreate | WorkflowStepUpdate) -> dict[str, Any
         values[field] = [item.model_dump(exclude_none=True) if hasattr(item, "model_dump") else item for item in values[field]]
     return values
 
-@router.post("", response_model=DraftRead, status_code=201)
-def create_draft(payload: DraftCreate, db: Session = Depends(get_db)) -> DraftRead:
-    user = get_current_user(db)
+def create_workflow_draft(db: Session, user: User, payload: DraftCreate) -> AgentWorkflowDraft:
     if payload.conversation_id and db.scalar(select(AgentConversation).where(AgentConversation.id == payload.conversation_id, AgentConversation.owner_id == user.id)) is None:
         raise HTTPException(404, "Agent conversation not found")
     if payload.run_id and db.scalar(select(AgentRun).join(AgentConversation).where(AgentRun.id == payload.run_id, AgentConversation.owner_id == user.id)) is None:
@@ -65,6 +63,10 @@ def create_draft(payload: DraftCreate, db: Session = Depends(get_db)) -> DraftRe
     draft = AgentWorkflowDraft(id=f"agent-workflow-draft-{uuid4().hex}", owner_id=user.id, conversation_id=payload.conversation_id, run_id=payload.run_id, operation=payload.operation, payload=payload.payload, resource_versions=versions, expires_at=datetime.utcnow()+timedelta(hours=24))
     db.add(draft); db.commit(); db.refresh(draft)
     return draft
+
+@router.post("", response_model=DraftRead, status_code=201)
+def create_draft(payload: DraftCreate, db: Session = Depends(get_db)) -> DraftRead:
+    return create_workflow_draft(db, get_current_user(db), payload)
 
 @router.get("/{draft_id}", response_model=DraftRead)
 def get_draft(draft_id: str, db: Session = Depends(get_db)) -> DraftRead:

@@ -21,6 +21,7 @@ from .schemas import (
 )
 from .services import lookup as lookup_service
 from .workflow_routes import _serialize_workflow
+from .workflow_draft_routes import DraftRead
 
 
 class ToolInput(BaseModel):
@@ -82,6 +83,12 @@ class CreateNoteInput(ToolInput):
     referenced_experiment_id: Optional[str] = Field(default=None, min_length=1)
 
 
+class ProposeWorkflowChangeInput(ToolInput):
+    """Create a reviewable workflow draft only; this never changes a workflow."""
+    operation: str = Field(pattern="^(create_workflow|update_workflow|add_step|update_step|reorder_steps|create_branch|replace_members)$")
+    payload: dict[str, Any]
+
+
 class ToolError(BaseModel):
     code: str
     message: str
@@ -111,6 +118,7 @@ class ToolDefinitionRead(BaseModel):
     permission: str
     side_effect: str
     confirmation_required: bool
+    model_callable: bool
 
 
 class UnavailableToolRead(BaseModel):
@@ -125,7 +133,13 @@ class AgentToolCatalogRead(BaseModel):
     unavailable_tools: list[UnavailableToolRead]
 
 
-ToolHandler = Callable[[Session, User, BaseModel], Any]
+ToolHandler = Callable[..., Any]
+
+
+@dataclass(frozen=True)
+class ToolExecutionContext:
+    conversation_id: Optional[str] = None
+    run_id: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -138,6 +152,8 @@ class ToolDefinition:
     side_effect: str
     confirmation_required: bool
     handler: ToolHandler
+    model_callable: bool = False
+    requires_agent_context: bool = False
 
 
 def _get_project(db: Session, _: User, payload: GetProjectInput) -> ProjectRead:
@@ -209,6 +225,18 @@ def _create_note(db: Session, user: User, payload: CreateNoteInput) -> ChatMessa
     return _serialize_message(db, message)
 
 
+def _propose_workflow_change(
+    db: Session, user: User, payload: ProposeWorkflowChangeInput, context: ToolExecutionContext,
+) -> Any:
+    if not context.run_id or not context.conversation_id:
+        raise HTTPException(status_code=409, detail="Workflow proposals can only be created during an agent run")
+    from .workflow_draft_routes import DraftCreate, create_workflow_draft
+    return create_workflow_draft(db, user, DraftCreate(
+        operation=payload.operation, payload=payload.payload,
+        conversation_id=context.conversation_id, run_id=context.run_id,
+    ))
+
+
 TOOL_REGISTRY: dict[str, ToolDefinition] = {
     "get_project": ToolDefinition("get_project", "Retrieve one project by id.", GetProjectInput, TypeAdapter(ProjectRead), "read; preserve backend project visibility behavior", "none", False, _get_project),
     "list_projects": ToolDefinition("list_projects", "List projects in the existing backend order.", EmptyInput, TypeAdapter(list[ProjectRead]), "read; preserve backend project visibility behavior", "none", False, _list_projects),
@@ -221,6 +249,14 @@ TOOL_REGISTRY: dict[str, ToolDefinition] = {
     "list_chat_channels": ToolDefinition("list_chat_channels", "List channels scoped to the authenticated user's lab.", EmptyInput, TypeAdapter(list[ChatChannelRead]), "read; backend constrains channels to the actor's lab_id", "none", False, _list_chat_channels),
     "list_channel_messages": ToolDefinition("list_channel_messages", "List messages in one lab-scoped channel.", ListChannelMessagesInput, TypeAdapter(list[ChatMessageRead]), "read; backend verifies channel lab scope", "none", False, _list_channel_messages),
     "create_note": ToolDefinition("create_note", "Create an auditable chat-message note in one channel.", CreateNoteInput, TypeAdapter(ChatMessageRead), "write; backend resolves actor, verifies lab scope, and validates references", "creates one ChatMessage; never updates embedded experiment or workflow notes", True, _create_note),
+    "propose_workflow_change": ToolDefinition(
+        "propose_workflow_change", "Prepare one reviewable workflow-change draft. It never changes a workflow; the owner must separately confirm the saved draft.",
+        ProposeWorkflowChangeInput,
+        TypeAdapter(DraftRead),
+        "draft write; caller must own the agent conversation and have workflow edit permission when a workflow is affected",
+        "creates one AgentWorkflowDraft only; confirmation is not model-callable", False, _propose_workflow_change,
+        model_callable=True, requires_agent_context=True,
+    ),
 }
 
 
@@ -248,6 +284,7 @@ def catalog() -> AgentToolCatalogRead:
                 permission=tool.permission,
                 side_effect=tool.side_effect,
                 confirmation_required=tool.confirmation_required,
+                model_callable=tool.model_callable,
             )
             for tool in TOOL_REGISTRY.values()
         ],
@@ -255,7 +292,7 @@ def catalog() -> AgentToolCatalogRead:
     )
 
 
-def invoke(db: Session, user: User, tool_name: str, request: ToolInvocationRequest) -> ToolInvocationResponse:
+def invoke(db: Session, user: User, tool_name: str, request: ToolInvocationRequest, context: Optional[ToolExecutionContext] = None) -> ToolInvocationResponse:
     tool = TOOL_REGISTRY.get(tool_name)
     if tool is None:
         unavailable = next((item for item in UNAVAILABLE_TOOLS if item.name == tool_name), None)
@@ -274,12 +311,18 @@ def invoke(db: Session, user: User, tool_name: str, request: ToolInvocationReque
     if tool.confirmation_required and not request.confirmed:
         raise ToolInvocationException(409, "confirmation_required", "This tool requires confirmed: true before it can write data.")
     try:
-        data = tool.handler(db, user, payload)
+        if tool.requires_agent_context:
+            data = tool.handler(db, user, payload, context or ToolExecutionContext())
+        else:
+            data = tool.handler(db, user, payload)
         return ToolInvocationResponse(tool_name=tool.name, ok=True, data=tool.output_adapter.dump_python(data, mode="json"))
     except HTTPException as error:
         code = "not_found" if error.status_code == 404 else "forbidden" if error.status_code == 403 else "invalid_request"
         raise ToolInvocationException(error.status_code, code, str(error.detail)) from error
     except Exception as error:
+        # Keep API output deterministic while retaining the internal cause for operators.
+        import logging
+        logging.getLogger(__name__).exception("agent_tool_execution_failed tool=%s", tool_name)
         raise ToolInvocationException(500, "tool_execution_failed", "The tool could not complete its operation.") from error
 
 
