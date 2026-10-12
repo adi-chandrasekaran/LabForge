@@ -100,8 +100,29 @@ Responses API. Its function catalog is generated from PR 3's registry, but it
 includes only supported read tools: unavailable NMR tools and `create_note` are
 excluded. The permanent assistant instruction requires tool evidence for every
 dataset-specific claim, prohibits invented experimental values, and requires a
-clear statement when data is unavailable. PR 5 will add the bounded execution
-loop and model request.
+clear statement when data is unavailable.
+
+## Agent Execution Loop
+
+`POST /api/v1/agent/conversations/{conversation_id}/runs` executes the
+read-only research assistant for an authenticated conversation. It persists the
+request as a running audit record, sends at most the ten most recent completed
+runs from that same owned conversation as context, and then calls the OpenAI
+Responses API with the permanent instructions and function definitions.
+
+Function calls are validated through the existing PR 3 registry and execute
+in-process with `confirmed: false`. Unknown, unavailable, malformed, failed,
+and write-tool calls are persisted and returned to the model as structured tool
+errors; they never execute. Every model-selected call records validated
+arguments, result/error, sequence, and timestamps. The loop returns outputs to
+the provider and stops after a valid final answer or five tool rounds.
+
+Final answers have `answer`, `data_availability`, and
+`evidence_tool_call_ids`. A `retrieved` answer must cite successful audit IDs
+from its own run; an `unavailable` answer must explicitly state that required
+data is unavailable. Provider failures, malformed final output, and exhausted
+tool rounds fail the run with stable errors instead of inventing a scientific
+answer.
 
 ## Frontend Surface
 

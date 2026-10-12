@@ -85,6 +85,7 @@ The API is versioned under `/api/v1`. FastAPI generates `/openapi.json` and inte
 - `GET /api/v1/agent/conversations/{conversation_id}`
 - `GET /api/v1/agent/conversations/{conversation_id}/runs`
 - `GET /api/v1/agent/conversations/{conversation_id}/runs/{run_id}`
+- `POST /api/v1/agent/conversations/{conversation_id}/runs`
 
 ## PR 3 Behavior Notes
 
@@ -107,6 +108,7 @@ The API is versioned under `/api/v1`. FastAPI generates `/openapi.json` and inte
 - `create_note` requires `confirmed: true` and delegates to the existing chat-message operation; it cannot update embedded experiment or workflow-step notes.
 - Agent conversations and their run/tool-call audit records are owner-scoped. PR 4 exposes their retrieval APIs only; PR 5 will create and execute runs.
 - `GET /api/v1/agent/status` intentionally reports configuration availability without revealing a provider secret.
+- Running a research-assistant conversation is read-only. The execution loop uses only the supported non-writing tool definitions and records every model tool request and result in the run audit.
 
 Future routes may add an MCP transport and analysis execution.
 
