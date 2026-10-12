@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 from .agent_routes import router as agent_router
+from .workflow_draft_routes import router as workflow_draft_router
 from .ai_routes import router as ai_router
 from .attachment_routes import router as attachment_router
 from .chat_routes import router as chat_router
@@ -45,6 +46,7 @@ app.include_router(summary_router)
 app.include_router(sync_router)
 app.include_router(ai_router)
 app.include_router(agent_router)
+app.include_router(workflow_draft_router)
 
 
 @app.on_event("startup")

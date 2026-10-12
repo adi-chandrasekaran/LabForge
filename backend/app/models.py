@@ -329,3 +329,23 @@ class AgentToolCall(Base):
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
     run: Mapped["AgentRun"] = relationship(back_populates="tool_calls")
+
+
+class AgentWorkflowDraft(Base):
+    """An immutable proposed workflow change; only its review status may change."""
+    __tablename__ = "agent_workflow_drafts"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    owner_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    conversation_id: Mapped[Optional[str]] = mapped_column(ForeignKey("agent_conversations.id"), nullable=True, index=True)
+    run_id: Mapped[Optional[str]] = mapped_column(ForeignKey("agent_runs.id"), nullable=True, index=True)
+    operation: Mapped[str] = mapped_column(String)
+    payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    resource_versions: Mapped[dict] = mapped_column(JSON, default=dict)
+    status: Mapped[str] = mapped_column(String, default="pending")
+    result: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    failure_code: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    failure_detail: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    decided_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
