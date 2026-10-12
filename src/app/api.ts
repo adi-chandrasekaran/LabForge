@@ -18,6 +18,7 @@ export interface WorkflowDraftRecord {
 export interface AgentToolCallRecord { id: string; sequence: number; toolName: string; arguments: Record<string, unknown>; result?: Record<string, unknown> | null; status: string; errorMessage?: string | null; }
 export interface AgentRunRecord { id: string; userRequest: string; status: string; finalAnswer?: string | null; dataAvailability?: string | null; failureCode?: string | null; failureDetail?: string | null; toolCalls: AgentToolCallRecord[]; }
 export interface AgentStatusRecord { available: boolean; provider: string; model: string; detail: string; }
+export interface AgentProviderDiagnosticRecord { ok: boolean; provider: string; model: string; code?: string | null; detail: string; }
 
 interface ApiUser {
   id: string;
@@ -933,6 +934,7 @@ export async function confirmWorkflowDraft(draftId: string): Promise<WorkflowDra
 type ApiAgentRun = { id: string; user_request: string; status: string; final_answer?: string | null; data_availability?: string | null; failure_code?: string | null; failure_detail?: string | null; tool_calls?: Array<{ id: string; sequence: number; tool_name: string; arguments: Record<string, unknown>; result?: Record<string, unknown> | null; status: string; error_message?: string | null; }> };
 function toAgentRun(run: ApiAgentRun): AgentRunRecord { return { id: run.id, userRequest: run.user_request, status: run.status, finalAnswer: run.final_answer, dataAvailability: run.data_availability, failureCode: run.failure_code, failureDetail: run.failure_detail, toolCalls: (run.tool_calls ?? []).map(call => ({ id: call.id, sequence: call.sequence, toolName: call.tool_name, arguments: call.arguments, result: call.result, status: call.status, errorMessage: call.error_message })) }; }
 export async function fetchAgentStatus(): Promise<AgentStatusRecord> { return request<AgentStatusRecord>("/agent/status"); }
+export async function runAgentProviderDiagnostic(): Promise<AgentProviderDiagnosticRecord> { return request<AgentProviderDiagnosticRecord>("/agent/provider-diagnostic", { method: "POST" }); }
 export async function createAgentConversation(title: string): Promise<{ id: string }> { return request<{ id: string }>("/agent/conversations", { method: "POST", body: JSON.stringify({ title }) }); }
 export async function runAgentConversation(conversationId: string, message: string): Promise<AgentRunRecord> { return toAgentRun(await request<ApiAgentRun>(`/agent/conversations/${conversationId}/runs`, { method: "POST", body: JSON.stringify({ message }) })); }
 

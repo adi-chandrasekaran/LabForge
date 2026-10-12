@@ -17,6 +17,8 @@ from .agent_research import (
     AgentExecutionException,
     AgentStatusRead,
     assistant_status,
+    provider_diagnostic,
+    AgentProviderDiagnosticRead,
     create_conversation,
     execute_run,
     get_conversation,
@@ -38,6 +40,12 @@ router = APIRouter(prefix="/api/v1/agent", tags=["agent-tools"])
 def get_agent_status(db: Session = Depends(get_db)) -> AgentStatusRead:
     get_current_user(db)
     return assistant_status()
+
+
+@router.post("/provider-diagnostic", response_model=AgentProviderDiagnosticRead)
+def run_provider_diagnostic(db: Session = Depends(get_db)) -> AgentProviderDiagnosticRead:
+    get_current_user(db)
+    return provider_diagnostic()
 
 
 @router.post("/conversations", response_model=AgentConversationRead, status_code=201)
