@@ -21,6 +21,7 @@ from backend.app.agent_research import (
     assistant_status,
     classify_provider_error,
     execute_run,
+    guided_tool_names,
 )
 
 
@@ -204,7 +205,7 @@ def test_ollama_stops_duplicate_tool_loops_and_forces_final_schema(monkeypatch: 
     requests = []
     responses = [
         {"created_at": "one", "message": {"role": "assistant", "content": "", "tool_calls": [{"function": {"name": "list_projects", "arguments": {}}}]}},
-        {"created_at": "two", "message": {"role": "assistant", "content": "", "tool_calls": [{"function": {"name": "list_projects", "arguments": {"project_id": "null"}}}]}},
+        {"created_at": "two", "message": {"role": "assistant", "content": "", "tool_calls": [{"function": {"name": "list_projects", "arguments": {}}}]}},
         {"created_at": "three", "message": {"role": "assistant", "content": '{"answer":"ANC2","data_availability":"retrieved","evidence_tool_call_ids":["audit-1"]}'}},
     ]
     def fake_request(path, payload=None, method="POST"):
@@ -220,6 +221,46 @@ def test_ollama_stops_duplicate_tool_loops_and_forces_final_schema(monkeypatch: 
     assert "tools" in requests[0] and "tools" in requests[1]
     assert "tools" not in requests[2]
     assert requests[2]["format"]["properties"]["answer"]
+
+
+@pytest.mark.parametrize(("message", "expected"), [
+    ("List my HSQC spectra", {"list_spectra", "get_spectrum", "list_samples"}),
+    ("What shifts are stored for residue M1?", {"list_proteins", "find_residue", "list_spectra", "get_residue_shifts"}),
+    ("Show the assignments for this peak", {"list_spectra", "list_peaks", "get_peak_assignments"}),
+    ("Compare these spectra and calculate CSP", {"list_spectra", "compare_spectra", "calculate_chemical_shift_perturbation"}),
+])
+def test_guided_tool_names_include_nmr_discovery_chains(message: str, expected: set[str]) -> None:
+    assert expected.issubset(guided_tool_names(message))
+
+
+def test_ollama_allows_same_tool_with_different_arguments(monkeypatch: pytest.MonkeyPatch) -> None:
+    assistant = OllamaResearchAssistant(Settings(agent_provider="ollama", ollama_model="llama3.2"))
+    responses = [
+        {"created_at": "one", "message": {"role": "assistant", "content": "", "tool_calls": [{"function": {"name": "get_spectrum", "arguments": {"spectrum_id": "spectrum-a"}}}]}},
+        {"created_at": "two", "message": {"role": "assistant", "content": "", "tool_calls": [{"function": {"name": "get_spectrum", "arguments": {"spectrum_id": "spectrum-b"}}}]}},
+    ]
+    monkeypatch.setattr(assistant, "_request", lambda *args, **kwargs: responses.pop(0))
+
+    first = assistant.respond([{"role": "user", "content": "Compare spectra A and B"}])
+    second = assistant.respond([{
+        "type": "function_call_output", "name": "get_spectrum", "output": '{"ok":true,"audit_tool_call_id":"audit-a"}',
+    }], first.id)
+
+    assert second.tool_calls[0].name == "get_spectrum"
+    assert json.loads(second.tool_calls[0].arguments) == {"spectrum_id": "spectrum-b"}
+
+
+def test_ollama_sends_only_request_relevant_tools(monkeypatch: pytest.MonkeyPatch) -> None:
+    assistant = OllamaResearchAssistant(Settings(agent_provider="ollama", ollama_model="llama3.2"))
+    captured = []
+    monkeypatch.setattr(assistant, "_request", lambda _path, payload, **_kwargs: captured.append(payload) or {
+        "created_at": "one", "message": {"role": "assistant", "content": '{"answer":"General guidance only.","data_availability":"general_guidance","evidence_tool_call_ids":[]}'},
+    })
+
+    assistant.respond([{"role": "user", "content": "Show shifts for residue M1"}])
+
+    names = {tool["function"]["name"] for tool in captured[0]["tools"]}
+    assert names == {"list_proteins", "find_residue", "list_spectra", "get_residue_shifts"}
 
 
 def test_ollama_falls_back_to_successful_tool_data_after_invalid_repairs(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -26,7 +26,12 @@ Never invent experimental values, spectra, peak assignments, chemical shifts, re
 samples, or conclusions about a dataset. If the required data or an appropriate tool is
 unavailable, say so explicitly. Clearly distinguish retrieved observations from general
 NMR guidance. Return only a JSON object with answer, data_availability, and
-evidence_tool_call_ids. A retrieved answer must cite successful tool-call ids from this run."""
+evidence_tool_call_ids. A retrieved answer must cite successful tool-call ids from this run.
+Tool arguments ending in _id require stored IDs, not names. Resolve names by calling the
+relevant list tool first. For residue shifts, resolve the protein, then residue, and optionally
+the spectrum. For peak assignments, resolve the spectrum, then peak. For spectrum comparisons
+or chemical-shift perturbations, resolve both spectrum IDs first. Never repeat an identical
+tool call; use results from earlier calls to choose the next arguments."""
 
 logger = logging.getLogger(__name__)
 MAX_TOOL_ROUNDS = 5
@@ -157,6 +162,38 @@ def read_only_function_definitions() -> list[dict[str, Any]]:
         for tool in TOOL_REGISTRY.values()
         if tool.model_callable or (not tool.confirmation_required and tool.side_effect == "none")
     ]
+
+
+TOOL_GUIDANCE_GROUPS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
+    (("project",), ("list_projects", "get_project")),
+    (("workflow", "protocol"), ("list_workflows", "get_workflow", "propose_workflow_change")),
+    (("experiment",), ("list_experiments", "get_experiment", "get_experiment_run_step")),
+    (("note",), ("search_experiment_notes", "list_experiments")),
+    (("sample", "buffer", "concentration"), ("list_samples", "get_sample")),
+    (("protein", "construct", "isotope"), ("list_proteins", "get_protein")),
+    (("ligand",), ("list_ligands", "get_ligand")),
+    (("spectrum", "spectra", "hsqc"), ("list_spectra", "get_spectrum", "list_samples")),
+    (("peak",), ("list_spectra", "list_peaks", "get_peak")),
+    (("assignment",), ("list_spectra", "list_peaks", "get_peak_assignments")),
+    (("residue",), ("list_proteins", "find_residue")),
+    (("shift", "ppm"), ("list_proteins", "find_residue", "list_spectra", "get_residue_shifts")),
+    (("compare", "comparison"), ("list_spectra", "compare_spectra")),
+    (("perturbation", "csp"), ("list_spectra", "calculate_chemical_shift_perturbation")),
+    (("channel", "message"), ("list_chat_channels", "list_channel_messages")),
+)
+
+
+def guided_tool_names(user_message: str) -> set[str]:
+    """Return a compact tool catalog suited to a small local model's request."""
+    query = user_message.casefold()
+    selected: set[str] = set()
+    for keywords, names in TOOL_GUIDANCE_GROUPS:
+        if any(keyword in query for keyword in keywords):
+            selected.update(names)
+    if not selected:
+        # Names such as ANC2 may refer to either a project or NMR entity.
+        selected.update(("list_projects", "list_proteins", "list_samples", "list_spectra"))
+    return selected
 
 
 class OpenAIResponsesResearchAssistant:
@@ -321,17 +358,29 @@ class OllamaResearchAssistant:
         self.model = self._settings.ollama_model
         self._messages: list[dict[str, Any]] = []
         self._tool_rounds = 0
-        self._executed_tool_names: set[str] = set()
+        self._requested_tool_signatures: set[str] = set()
+        self._user_request = ""
 
     @property
     def configured(self) -> bool:
         return bool(self._settings.ollama_base_url and self.model)
 
-    def function_definitions(self) -> list[dict[str, Any]]:
+    def function_definitions(self, tool_names: Optional[set[str]] = None) -> list[dict[str, Any]]:
         return [
             {"type": "function", "function": {"name": tool["name"], "description": tool["description"], "parameters": tool["parameters"]}}
-            for tool in read_only_function_definitions()
+            for tool in read_only_function_definitions() if tool_names is None or tool["name"] in tool_names
         ]
+
+    @staticmethod
+    def _tool_signature(raw_call: dict[str, Any]) -> str:
+        function = raw_call.get("function") or {}
+        arguments = function.get("arguments") or {}
+        if isinstance(arguments, str):
+            try:
+                arguments = json.loads(arguments)
+            except (ValueError, json.JSONDecodeError):
+                pass
+        return f"{function.get('name', '')}:{json.dumps(arguments, sort_keys=True, default=str)}"
 
     def _request(self, path: str, payload: Optional[dict[str, Any]] = None, method: str = "POST") -> dict[str, Any]:
         body = json.dumps(payload).encode() if payload is not None else None
@@ -416,14 +465,14 @@ class OllamaResearchAssistant:
         if previous_response_id is None:
             self._messages = self._initial_messages(input_items)
             self._tool_rounds = 0
-            self._executed_tool_names = set()
+            self._requested_tool_signatures = set()
+            self._user_request = next((str(item.get("content", "")) for item in reversed(input_items) if item.get("role") == "user"), "")
         else:
             self._tool_rounds += 1
             tool_messages = [
                 {"role": "tool", "tool_name": item.get("name", "tool_result"), "content": item.get("output", "{}")}
                 for item in input_items if item.get("type") == "function_call_output"
             ]
-            self._executed_tool_names.update(message["tool_name"] for message in tool_messages)
             self._messages.extend(tool_messages)
             self._messages.append({
                 "role": "user",
@@ -435,17 +484,14 @@ class OllamaResearchAssistant:
             "stream": False,
         }
         if self._tool_rounds < 3:
-            payload["tools"] = self.function_definitions()
+            payload["tools"] = self.function_definitions(guided_tool_names(self._user_request))
         else:
             payload["format"] = AgentFinalAnswer.model_json_schema()
         response = self._request("/api/chat", payload)
         message = response.get("message") or {}
         self._messages.append(message)
-        requested_names = {
-            (call.get("function") or {}).get("name", "")
-            for call in message.get("tool_calls") or []
-        }
-        if requested_names and requested_names.issubset(self._executed_tool_names):
+        requested_signatures = {self._tool_signature(call) for call in message.get("tool_calls") or []}
+        if requested_signatures and requested_signatures.issubset(self._requested_tool_signatures):
             self._messages.append({
                 "role": "user",
                 "content": "Do not repeat a tool that already returned a result. Produce the final answer now from the successful tool evidence above, using its exact audit_tool_call_id values.",
@@ -458,6 +504,9 @@ class OllamaResearchAssistant:
             })
             message = response.get("message") or {}
             self._messages.append(message)
+            requested_signatures = set()
+        else:
+            self._requested_tool_signatures.update(requested_signatures)
         if not message.get("tool_calls"):
             if not self._is_usable_final_answer(message.get("content") or ""):
                 self._messages.append({
