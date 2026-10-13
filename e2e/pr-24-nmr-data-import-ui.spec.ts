@@ -11,7 +11,8 @@ test("researcher previews and confirms an NMR residue import", async ({ page, re
   const protein = await proteinResponse.json() as { id: string };
 
   await page.goto("/nmr-data");
-  await expect(page.getByTestId("nmr-data-title")).toHaveText("Import NMR datasets");
+  await expect(page.getByTestId("nmr-data-title")).toHaveText("NMR data workspace");
+  await page.getByRole("button", { name: "Import CSV" }).click();
   await expect(page.getByText("Chemical Shifts", { exact: true })).toBeVisible();
 
   await page.getByTestId("nmr-file-input").setInputFiles({
@@ -36,6 +37,7 @@ test("researcher previews and confirms an NMR residue import", async ({ page, re
 
 test("validation errors remain visible and cannot be imported", async ({ page }) => {
   await page.goto("/nmr-data");
+  await page.getByRole("button", { name: "Import CSV" }).click();
   await page.getByTestId("nmr-file-input").setInputFiles({
     name: "bad-residues.csv",
     mimeType: "text/csv",
