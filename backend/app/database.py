@@ -56,11 +56,14 @@ configure_database()
 def init_db() -> None:
     from . import models  # noqa: F401
     from .seed import seed_reference_data
+    from .sync import ensure_sync_state
 
     Base.metadata.create_all(bind=engine)
     _apply_schema_updates()
     with SessionLocal() as db:
         seed_reference_data(db)
+        ensure_sync_state(db)
+        db.commit()
 
 
 def get_db() -> Generator[Session, None, None]:
