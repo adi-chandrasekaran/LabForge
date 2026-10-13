@@ -394,6 +394,23 @@ class OllamaResearchAssistant:
             )
         return final.model_dump_json()
 
+    @staticmethod
+    def _is_usable_final_answer(content: str) -> bool:
+        try:
+            final = AgentFinalAnswer.model_validate_json(content)
+        except Exception:
+            return False
+        # Small local models sometimes put the response envelope itself inside
+        # ``answer``. It satisfies the schema but is not a user-facing answer.
+        try:
+            nested = json.loads(final.answer)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return True
+        return not (
+            isinstance(nested, dict)
+            and {"data_availability", "evidence_tool_call_ids"}.intersection(nested)
+        )
+
     def respond(self, input_items: list[dict[str, Any]], previous_response_id: Optional[str] = None) -> ProviderResponse:
         if previous_response_id is None:
             self._messages = self._initial_messages(input_items)
@@ -441,9 +458,7 @@ class OllamaResearchAssistant:
             message = response.get("message") or {}
             self._messages.append(message)
         if not message.get("tool_calls"):
-            try:
-                AgentFinalAnswer.model_validate_json(message.get("content") or "")
-            except Exception:
+            if not self._is_usable_final_answer(message.get("content") or ""):
                 self._messages.append({
                     "role": "user",
                     "content": "Reformat your answer as the required JSON object. If successful tool data was used, set data_availability to retrieved and cite the exact audit_tool_call_id values from the tool results. Do not add markdown or commentary.",
@@ -456,9 +471,7 @@ class OllamaResearchAssistant:
                 })
                 message = response.get("message") or {}
                 self._messages.append(message)
-                try:
-                    AgentFinalAnswer.model_validate_json(message.get("content") or "")
-                except Exception:
+                if not self._is_usable_final_answer(message.get("content") or ""):
                     message = {"role": "assistant", "content": self._deterministic_final_answer()}
                     self._messages.append(message)
         calls = []

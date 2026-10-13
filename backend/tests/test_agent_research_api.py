@@ -244,6 +244,32 @@ def test_ollama_falls_back_to_successful_tool_data_after_invalid_repairs(monkeyp
     assert "ANC2" in answer.answer
 
 
+def test_ollama_rejects_nested_metadata_as_the_user_facing_answer(monkeypatch: pytest.MonkeyPatch) -> None:
+    assistant = OllamaResearchAssistant(Settings(agent_provider="ollama", ollama_model="llama3.2"))
+    nested_answer = json.dumps({
+        "answer": json.dumps({"data_availability": "retrieved", "evidence_tool_call_ids": ["audit-1"]}),
+        "data_availability": "retrieved",
+        "evidence_tool_call_ids": ["audit-1"],
+    })
+    responses = [
+        {"created_at": "one", "message": {"role": "assistant", "content": "", "tool_calls": [{"function": {"name": "list_projects", "arguments": {}}}]}},
+        {"created_at": "two", "message": {"role": "assistant", "content": nested_answer}},
+        {"created_at": "three", "message": {"role": "assistant", "content": nested_answer}},
+    ]
+    monkeypatch.setattr(assistant, "_request", lambda *args, **kwargs: responses.pop(0))
+
+    first = assistant.respond([{"role": "user", "content": "List projects"}])
+    second = assistant.respond([{
+        "type": "function_call_output",
+        "name": "list_projects",
+        "output": '{"tool_name":"list_projects","ok":true,"data":[{"name":"ANC2"}],"audit_tool_call_id":"audit-1"}',
+    }], first.id)
+
+    answer = AgentFinalAnswer.model_validate_json(second.output_text)
+    assert answer.answer.startswith("Retrieved data from LabForge:")
+    assert "ANC2" in answer.answer
+
+
 def test_conversation_and_empty_audit_history_are_owned(client: TestClient) -> None:
     created = client.post("/api/v1/agent/conversations", json={"title": "HSQC review"})
     assert created.status_code == 201
