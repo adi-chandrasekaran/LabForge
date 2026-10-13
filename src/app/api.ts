@@ -19,6 +19,9 @@ export interface AgentToolCallRecord { id: string; sequence: number; toolName: s
 export interface AgentRunRecord { id: string; userRequest: string; status: string; finalAnswer?: string | null; dataAvailability?: string | null; failureCode?: string | null; failureDetail?: string | null; toolCalls: AgentToolCallRecord[]; }
 export interface AgentStatusRecord { available: boolean; provider: string; model: string; detail: string; }
 export interface AgentProviderDiagnosticRecord { ok: boolean; provider: string; model: string; code?: string | null; detail: string; }
+export interface NMRImportFormatRecord { entityType: string; requiredColumns: string[]; optionalColumns: string[]; listSeparator?: string | null; }
+export interface NMRImportErrorRecord { row: number; field?: string | null; message: string; }
+export interface NMRImportResultRecord { entityType: string; dryRun: boolean; totalRows: number; validRows: number; importedCount: number; importedIds: string[]; errors: NMRImportErrorRecord[]; }
 
 interface ApiUser {
   id: string;
@@ -937,6 +940,12 @@ export async function fetchAgentStatus(): Promise<AgentStatusRecord> { return re
 export async function runAgentProviderDiagnostic(): Promise<AgentProviderDiagnosticRecord> { return request<AgentProviderDiagnosticRecord>("/agent/provider-diagnostic", { method: "POST" }); }
 export async function createAgentConversation(title: string): Promise<{ id: string }> { return request<{ id: string }>("/agent/conversations", { method: "POST", body: JSON.stringify({ title }) }); }
 export async function runAgentConversation(conversationId: string, message: string): Promise<AgentRunRecord> { return toAgentRun(await request<ApiAgentRun>(`/agent/conversations/${conversationId}/runs`, { method: "POST", body: JSON.stringify({ message }) })); }
+
+type ApiNMRImportFormat = { entity_type: string; required_columns: string[]; optional_columns: string[]; list_separator?: string | null };
+type ApiNMRImportResult = { entity_type: string; dry_run: boolean; total_rows: number; valid_rows: number; imported_count: number; imported_ids: string[]; errors: Array<{ row: number; field?: string | null; message: string }> };
+function toNMRImportResult(value: ApiNMRImportResult): NMRImportResultRecord { return { entityType: value.entity_type, dryRun: value.dry_run, totalRows: value.total_rows, validRows: value.valid_rows, importedCount: value.imported_count, importedIds: value.imported_ids, errors: value.errors }; }
+export async function fetchNMRImportFormats(): Promise<NMRImportFormatRecord[]> { return (await request<ApiNMRImportFormat[]>("/nmr/imports")).map(value => ({ entityType: value.entity_type, requiredColumns: value.required_columns, optionalColumns: value.optional_columns, listSeparator: value.list_separator })); }
+export async function uploadNMRImport(entityType: string, file: File, dryRun: boolean): Promise<NMRImportResultRecord> { const body = new FormData(); body.append("file", file); return toNMRImportResult(await request<ApiNMRImportResult>(`/nmr/imports/${entityType}?dry_run=${dryRun}`, { method: "POST", body })); }
 
 function toWorkflowPageData(workflows: ApiWorkflow[]): WorkflowPageData {
   const batch1 = workflows.find((workflow) => workflow.title === "ANC2 Batch 1");

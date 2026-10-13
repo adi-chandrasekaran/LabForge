@@ -11,6 +11,7 @@ import TeamsPage from "./pages/TeamsPage";
 import AIModelPage from "./pages/AIModelPage";
 import WorkflowDraftsPage from "./pages/WorkflowDraftsPage";
 import ResearchAssistantPage from "./pages/ResearchAssistantPage";
+import NMRDataPage from "./pages/NMRDataPage";
 
 export const router = createBrowserRouter([
   {
@@ -28,6 +29,7 @@ export const router = createBrowserRouter([
       { path: "ai-model", Component: AIModelPage },
       { path: "workflow-drafts", Component: WorkflowDraftsPage },
       { path: "assistant", Component: ResearchAssistantPage },
+      { path: "nmr-data", Component: NMRDataPage },
     ],
   },
 ]);

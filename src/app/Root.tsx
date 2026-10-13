@@ -2,7 +2,7 @@ import { Link, useLocation, Outlet } from "react-router";
 import { useEffect, useState } from "react";
 import {
   Home, FolderOpen, GitBranch, Calculator, User,
-  Users, BrainCircuit, FlaskConical, ChevronRight, BookOpen, RefreshCcw, ClipboardCheck, Bot,
+  Users, BrainCircuit, FlaskConical, ChevronRight, BookOpen, RefreshCcw, ClipboardCheck, Bot, Database,
 } from "lucide-react";
 import {
   fetchCurrentUser,
@@ -19,6 +19,7 @@ const NAV = [
   { path: "/workflow", label: "WORKFLOW", icon: GitBranch },
   { path: "/workflow-drafts", label: "DRAFT REVIEWS", icon: ClipboardCheck },
   { path: "/assistant", label: "ASSISTANT", icon: Bot },
+  { path: "/nmr-data", label: "NMR DATA", icon: Database },
   { path: "/standardized-workflows", label: "STANDARDIZED", icon: BookOpen },
   { path: "/calculator", label: "CALCULATOR", icon: Calculator },
   { path: "/docs", label: "DOCS", icon: BookOpen },
