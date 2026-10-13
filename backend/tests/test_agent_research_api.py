@@ -23,6 +23,7 @@ from backend.app.agent_research import (
     execute_run,
     guided_tool_names,
     required_tool_sequence,
+    _normalize_nmr_arguments,
 )
 
 
@@ -240,6 +241,33 @@ def test_required_tool_sequence_reaches_requested_nmr_operation() -> None:
     assert required_tool_sequence("Compare spectra and calculate CSP") == ["list_spectra", "compare_spectra", "calculate_chemical_shift_perturbation"]
 
 
+def test_nmr_argument_handoff_uses_authoritative_ids(client: TestClient) -> None:
+    conversation = client.post("/api/v1/agent/conversations", json={"title": "ID handoff"}).json()
+    with database.SessionLocal() as db:
+        run = AgentRun(
+            id="agent-run-id-handoff", conversation_id=conversation["id"],
+            user_request="What shifts are stored for residue M1?", provider="ollama", model="llama3.2", status="running",
+        )
+        db.add(run)
+        db.add_all([
+            AgentToolCall(id="audit-proteins", run_id=run.id, sequence=1, tool_name="list_proteins", arguments={}, result={"ok": True, "data": [{"id": "protein-anc2", "name": "ANC2", "residue_count": 1}]}, status="completed"),
+            AgentToolCall(id="audit-residue", run_id=run.id, sequence=2, tool_name="find_residue", arguments={}, result={"ok": True, "data": [{"id": "residue-m1", "sequence_number": 1, "one_letter_code": "M"}]}, status="completed"),
+            AgentToolCall(id="audit-spectra", run_id=run.id, sequence=3, tool_name="list_spectra", arguments={}, result={"ok": True, "data": [{"id": "spectrum-bound", "name": "ANC2 bound", "peak_count": 0}, {"id": "spectrum-reference", "name": "ANC2 reference", "peak_count": 1}]}, status="completed"),
+            AgentToolCall(id="audit-peaks", run_id=run.id, sequence=4, tool_name="list_peaks", arguments={}, result={"ok": True, "data": [{"id": "peak-m1", "label": "M1"}]}, status="completed"),
+        ])
+        db.commit()
+
+        residue = _normalize_nmr_arguments(db, run, "find_residue", {"protein_id": "ANC2", "query": "M1"})
+        shifts = _normalize_nmr_arguments(db, run, "get_residue_shifts", {"residue_id": "M1", "spectrum_id": "ANC2 reference"})
+        assignments = _normalize_nmr_arguments(db, run, "get_peak_assignments", {"peak_id": "M1"})
+        comparison = _normalize_nmr_arguments(db, run, "compare_spectra", {"reference_spectrum_id": "reference", "comparison_spectrum_id": "bound", "nuclei": '["1H", "15N"]'})
+
+    assert residue == {"protein_id": "protein-anc2", "sequence_number": 1}
+    assert shifts == {"residue_id": "residue-m1"}
+    assert assignments == {"peak_id": "peak-m1"}
+    assert comparison == {"reference_spectrum_id": "spectrum-reference", "comparison_spectrum_id": "spectrum-bound", "nuclei": ["1H", "15N"]}
+
+
 def test_ollama_continues_until_residue_shift_tool_is_called(monkeypatch: pytest.MonkeyPatch) -> None:
     assistant = OllamaResearchAssistant(Settings(agent_provider="ollama", ollama_model="llama3.2"))
     responses = [
@@ -273,7 +301,7 @@ def test_ollama_allows_same_tool_with_different_arguments(monkeypatch: pytest.Mo
     ]
     monkeypatch.setattr(assistant, "_request", lambda *args, **kwargs: responses.pop(0))
 
-    first = assistant.respond([{"role": "user", "content": "Compare spectra A and B"}])
+    first = assistant.respond([{"role": "user", "content": "Retrieve records A and B"}])
     second = assistant.respond([{
         "type": "function_call_output", "name": "get_spectrum", "output": '{"ok":true,"audit_tool_call_id":"audit-a"}',
     }], first.id)

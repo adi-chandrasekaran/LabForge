@@ -4,6 +4,7 @@ from __future__ import annotations
 from datetime import datetime
 import json
 import logging
+import re
 from urllib import error as urllib_error
 from urllib import request as urllib_request
 from typing import Any, Literal, Optional, Protocol, Union
@@ -382,6 +383,7 @@ class OllamaResearchAssistant:
         self._tool_rounds = 0
         self._requested_tool_signatures: set[str] = set()
         self._requested_tool_names: set[str] = set()
+        self._successful_tool_names: set[str] = set()
         self._user_request = ""
 
     @property
@@ -490,6 +492,7 @@ class OllamaResearchAssistant:
             self._tool_rounds = 0
             self._requested_tool_signatures = set()
             self._requested_tool_names = set()
+            self._successful_tool_names = set()
             self._user_request = next((str(item.get("content", "")) for item in reversed(input_items) if item.get("role") == "user"), "")
         else:
             self._tool_rounds += 1
@@ -497,6 +500,15 @@ class OllamaResearchAssistant:
                 {"role": "tool", "tool_name": item.get("name", "tool_result"), "content": item.get("output", "{}")}
                 for item in input_items if item.get("type") == "function_call_output"
             ]
+            for item in input_items:
+                if item.get("type") != "function_call_output":
+                    continue
+                try:
+                    result = json.loads(item.get("output") or "{}")
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    continue
+                if isinstance(result, dict) and result.get("ok") is True:
+                    self._successful_tool_names.add(item.get("name", ""))
             self._messages.extend(tool_messages)
             self._messages.append({
                 "role": "user",
@@ -507,7 +519,7 @@ class OllamaResearchAssistant:
             "messages": self._messages,
             "stream": False,
         }
-        if self._tool_rounds < 3:
+        if self._tool_rounds < MAX_TOOL_ROUNDS:
             payload["tools"] = self.function_definitions(guided_tool_names(self._user_request))
         else:
             payload["format"] = AgentFinalAnswer.model_json_schema()
@@ -520,33 +532,30 @@ class OllamaResearchAssistant:
             for call in message.get("tool_calls") or []
         }
         required_sequence = required_tool_sequence(self._user_request)
-        pending_required = [name for name in required_sequence if name not in self._requested_tool_names]
-        if message.get("tool_calls") and required_sequence and not pending_required:
+        pending_required = [name for name in required_sequence if name not in self._successful_tool_names]
+        if pending_required and self._tool_rounds < MAX_TOOL_ROUNDS and pending_required[0] not in requested_names:
+            # Small local models commonly jump directly to a terminal NMR tool
+            # with a label instead of an ID. Enforce the evidence path; the
+            # execution layer fills authoritative IDs from prior results.
+            next_tool = pending_required[0]
+            message = {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [{
+                    "id": f"ollama-guided-{uuid4().hex}",
+                    "function": {"name": next_tool, "arguments": {}},
+                }],
+            }
+            self._messages.append(message)
+            requested_signatures = {self._tool_signature(message["tool_calls"][0])}
+            requested_names = {next_tool}
+        elif message.get("tool_calls") and required_sequence and not pending_required:
             # The requested NMR evidence path is complete. Ignore speculative
             # auxiliary calls and synthesize only from executed evidence.
             message = {"role": "assistant", "content": self._deterministic_final_answer()}
             requested_signatures = set()
             requested_names = set()
-        elif not message.get("tool_calls") and pending_required and self._tool_rounds < 3:
-            next_tool = pending_required[0]
-            self._messages.append({
-                "role": "user",
-                "content": f"The requested NMR task is not complete. Call {next_tool} now, using exact IDs from the successful tool results. Do not answer yet.",
-            })
-            response = self._request("/api/chat", {
-                "model": self.model,
-                "messages": self._messages,
-                "tools": self.function_definitions(guided_tool_names(self._user_request)),
-                "stream": False,
-            })
-            message = response.get("message") or {}
-            self._messages.append(message)
-            requested_signatures = {self._tool_signature(call) for call in message.get("tool_calls") or []}
-            requested_names = {
-                (call.get("function") or {}).get("name", "")
-                for call in message.get("tool_calls") or []
-            }
-        if requested_signatures and requested_signatures.issubset(self._requested_tool_signatures):
+        if not pending_required and requested_signatures and requested_signatures.issubset(self._requested_tool_signatures):
             self._messages.append({
                 "role": "user",
                 "content": "Do not repeat a tool that already returned a result. Produce the final answer now from the successful tool evidence above, using its exact audit_tool_call_id values.",
@@ -745,6 +754,84 @@ def _tool_error(name: str, code: str, message: str) -> dict[str, Any]:
     return {"tool_name": name, "ok": False, "data": None, "error": {"code": code, "message": message, "details": None}}
 
 
+def _successful_result_data(db: Session, run_id: str, tool_name: str) -> list[Any]:
+    records = db.scalars(select(AgentToolCall).where(
+        AgentToolCall.run_id == run_id,
+        AgentToolCall.tool_name == tool_name,
+        AgentToolCall.status == "completed",
+    ).order_by(AgentToolCall.sequence)).all()
+    return [record.result.get("data") for record in records if record.result and record.result.get("ok")]
+
+
+def _record_list(values: list[Any]) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    for value in values:
+        if isinstance(value, list):
+            records.extend(item for item in value if isinstance(item, dict))
+        elif isinstance(value, dict):
+            records.append(value)
+    return records
+
+
+def _match_named_record(records: list[dict[str, Any]], request: str, *, prefer_nonempty: Optional[str] = None) -> Optional[dict[str, Any]]:
+    query = request.casefold()
+    for record in records:
+        names = (record.get("name"), record.get("title"), record.get("label"))
+        if any(str(name).casefold() in query for name in names if name):
+            return record
+    if prefer_nonempty:
+        preferred = next((record for record in records if record.get(prefer_nonempty)), None)
+        if preferred:
+            return preferred
+    return records[0] if records else None
+
+
+def _normalize_nmr_arguments(db: Session, run: AgentRun, tool_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    """Replace local-model labels with authoritative IDs from prior tool evidence."""
+    normalized = {key: value for key, value in arguments.items() if value not in ("", "null", "None")}
+    spectra = _record_list(_successful_result_data(db, run.id, "list_spectra"))
+    proteins = _record_list(_successful_result_data(db, run.id, "list_proteins"))
+    residues = _record_list(_successful_result_data(db, run.id, "find_residue"))
+    peaks = _record_list(_successful_result_data(db, run.id, "list_peaks"))
+
+    if tool_name == "list_spectra":
+        normalized.pop("sample_id", None)
+    elif tool_name == "find_residue" and proteins:
+        protein = _match_named_record(proteins, run.user_request, prefer_nonempty="residue_count")
+        normalized["protein_id"] = protein["id"]
+        residue_match = re.search(r"\b([A-Za-z])(\d+)\b", run.user_request)
+        if residue_match:
+            normalized["sequence_number"] = int(residue_match.group(2))
+            normalized.pop("query", None)
+    elif tool_name == "list_peaks" and spectra:
+        spectrum = _match_named_record(spectra, run.user_request, prefer_nonempty="peak_count")
+        normalized["spectrum_id"] = spectrum["id"]
+    elif tool_name == "get_peak_assignments" and peaks:
+        peak = _match_named_record(peaks, run.user_request)
+        normalized["peak_id"] = peak["id"]
+    elif tool_name == "get_residue_shifts" and residues:
+        residue = _match_named_record(residues, run.user_request)
+        normalized["residue_id"] = residue["id"]
+        if normalized.get("spectrum_id") not in {item.get("id") for item in spectra}:
+            normalized.pop("spectrum_id", None)
+    elif tool_name in {"compare_spectra", "calculate_chemical_shift_perturbation"} and len(spectra) >= 2:
+        reference = next((item for item in spectra if "reference" in str(item.get("name", "")).casefold()), spectra[0])
+        comparison = next((item for item in spectra if item.get("id") != reference.get("id")), spectra[1])
+        normalized["reference_spectrum_id"] = reference["id"]
+        normalized["comparison_spectrum_id"] = comparison["id"]
+        if isinstance(normalized.get("nuclei"), str):
+            try:
+                parsed = json.loads(normalized["nuclei"])
+            except (ValueError, json.JSONDecodeError):
+                normalized.pop("nuclei", None)
+            else:
+                if isinstance(parsed, list):
+                    normalized["nuclei"] = parsed
+                else:
+                    normalized.pop("nuclei", None)
+    return normalized
+
+
 def _execute_provider_tool_call(db: Session, user: User, run: AgentRun, sequence: int, call: ProviderToolCall) -> dict[str, Any]:
     from .agent_tools import TOOL_REGISTRY, ToolExecutionContext, ToolInvocationException, ToolInvocationRequest, error_response, invoke
 
@@ -757,6 +844,7 @@ def _execute_provider_tool_call(db: Session, user: User, run: AgentRun, sequence
         arguments = {}
         response = _tool_error(call.name, "invalid_tool_arguments", "Tool arguments must be a JSON object.")
     else:
+        arguments = _normalize_nmr_arguments(db, run, call.name, arguments)
         tool = TOOL_REGISTRY.get(call.name)
         if tool is None:
             response = _tool_error(call.name, "tool_not_allowed", "This tool is not available to the research assistant.")
