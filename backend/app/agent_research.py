@@ -15,6 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from .agent_tools import TOOL_REGISTRY
+from .agent_presenter import format_tool_evidence
 from .config import Settings, get_settings
 from .models import AgentConversation, AgentRun, AgentToolCall, User
 
@@ -380,7 +381,7 @@ class OllamaResearchAssistant:
                 "data": result.get("data"),
             })
         if successful and evidence_ids:
-            answer = "Retrieved data from LabForge:\n" + json.dumps(successful, ensure_ascii=False, default=str)
+            answer = format_tool_evidence(successful)
             final = AgentFinalAnswer(
                 answer=answer,
                 data_availability="retrieved",

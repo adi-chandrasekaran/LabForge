@@ -235,7 +235,7 @@ def test_ollama_falls_back_to_successful_tool_data_after_invalid_repairs(monkeyp
     second = assistant.respond([{
         "type": "function_call_output",
         "name": "list_projects",
-        "output": '{"tool_name":"list_projects","ok":true,"data":[{"name":"ANC2"}],"audit_tool_call_id":"audit-1"}',
+        "output": '{"tool_name":"list_projects","ok":true,"data":[{"title":"ANC2","code":"ANC2","status":"active"}],"audit_tool_call_id":"audit-1"}',
     }], first.id)
 
     answer = AgentFinalAnswer.model_validate_json(second.output_text)
@@ -262,11 +262,11 @@ def test_ollama_rejects_nested_metadata_as_the_user_facing_answer(monkeypatch: p
     second = assistant.respond([{
         "type": "function_call_output",
         "name": "list_projects",
-        "output": '{"tool_name":"list_projects","ok":true,"data":[{"name":"ANC2"}],"audit_tool_call_id":"audit-1"}',
+        "output": '{"tool_name":"list_projects","ok":true,"data":[{"title":"ANC2","code":"ANC2","status":"active"}],"audit_tool_call_id":"audit-1"}',
     }], first.id)
 
     answer = AgentFinalAnswer.model_validate_json(second.output_text)
-    assert answer.answer.startswith("Retrieved data from LabForge:")
+    assert answer.answer.startswith("I found 1 project:")
     assert "ANC2" in answer.answer
 
 
