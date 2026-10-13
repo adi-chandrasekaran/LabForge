@@ -176,7 +176,8 @@ def test_ollama_provider_maps_tools_messages_and_results(monkeypatch: pytest.Mon
     assert json.loads(first.tool_calls[0].arguments) == {"project_id": "project-anc2"}
     assert second.output_text.startswith('{"answer"')
     assert requests[0][1]["tools"][0]["function"]["parameters"]
-    assert requests[1][1]["messages"][-1] == {"role": "tool", "tool_name": "get_project", "content": '{"ok":true}'}
+    assert requests[1][1]["messages"][-2] == {"role": "tool", "tool_name": "get_project", "content": '{"ok":true}'}
+    assert requests[1][1]["messages"][-1]["role"] == "user"
 
 
 def test_ollama_preflight_reports_model_install_state(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -196,6 +197,29 @@ def test_ollama_status_uses_live_preflight(monkeypatch: pytest.MonkeyPatch) -> N
     assert result.available is True
     assert result.provider == "ollama"
     assert result.model == "llama3.2"
+
+
+def test_ollama_stops_duplicate_tool_loops_and_forces_final_schema(monkeypatch: pytest.MonkeyPatch) -> None:
+    assistant = OllamaResearchAssistant(Settings(agent_provider="ollama", ollama_model="llama3.2"))
+    requests = []
+    responses = [
+        {"created_at": "one", "message": {"role": "assistant", "content": "", "tool_calls": [{"function": {"name": "list_projects", "arguments": {}}}]}},
+        {"created_at": "two", "message": {"role": "assistant", "content": "", "tool_calls": [{"function": {"name": "list_projects", "arguments": {"project_id": "null"}}}]}},
+        {"created_at": "three", "message": {"role": "assistant", "content": '{"answer":"ANC2","data_availability":"retrieved","evidence_tool_call_ids":["audit-1"]}'}},
+    ]
+    def fake_request(path, payload=None, method="POST"):
+        requests.append(copy.deepcopy(payload))
+        return responses.pop(0)
+    monkeypatch.setattr(assistant, "_request", fake_request)
+
+    first = assistant.respond([{"role": "user", "content": "List projects"}])
+    second = assistant.respond([{"type": "function_call_output", "name": "list_projects", "output": '{"ok":true,"audit_tool_call_id":"audit-1"}'}], first.id)
+
+    assert second.tool_calls == []
+    assert AgentFinalAnswer.model_validate_json(second.output_text).evidence_tool_call_ids == ["audit-1"]
+    assert "tools" in requests[0] and "tools" in requests[1]
+    assert "tools" not in requests[2]
+    assert requests[2]["format"]["properties"]["answer"]
 
 
 def test_conversation_and_empty_audit_history_are_owned(client: TestClient) -> None:

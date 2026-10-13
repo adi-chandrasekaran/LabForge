@@ -319,6 +319,8 @@ class OllamaResearchAssistant:
         self._settings = settings or get_settings()
         self.model = self._settings.ollama_model
         self._messages: list[dict[str, Any]] = []
+        self._tool_rounds = 0
+        self._executed_tool_names: set[str] = set()
 
     @property
     def configured(self) -> bool:
@@ -360,14 +362,65 @@ class OllamaResearchAssistant:
     def respond(self, input_items: list[dict[str, Any]], previous_response_id: Optional[str] = None) -> ProviderResponse:
         if previous_response_id is None:
             self._messages = self._initial_messages(input_items)
+            self._tool_rounds = 0
+            self._executed_tool_names = set()
         else:
-            self._messages.extend(
+            self._tool_rounds += 1
+            tool_messages = [
                 {"role": "tool", "tool_name": item.get("name", "tool_result"), "content": item.get("output", "{}")}
                 for item in input_items if item.get("type") == "function_call_output"
-            )
-        response = self._request("/api/chat", {"model": self.model, "messages": self._messages, "tools": self.function_definitions(), "stream": False})
+            ]
+            self._executed_tool_names.update(message["tool_name"] for message in tool_messages)
+            self._messages.extend(tool_messages)
+            self._messages.append({
+                "role": "user",
+                "content": "Use the tool results above to answer. For every successful result (ok=true), set data_availability to retrieved and copy its audit_tool_call_id exactly into evidence_tool_call_ids. Return only the required JSON object.",
+            })
+        payload: dict[str, Any] = {
+            "model": self.model,
+            "messages": self._messages,
+            "stream": False,
+        }
+        if self._tool_rounds < 3:
+            payload["tools"] = self.function_definitions()
+        else:
+            payload["format"] = AgentFinalAnswer.model_json_schema()
+        response = self._request("/api/chat", payload)
         message = response.get("message") or {}
         self._messages.append(message)
+        requested_names = {
+            (call.get("function") or {}).get("name", "")
+            for call in message.get("tool_calls") or []
+        }
+        if requested_names and requested_names.issubset(self._executed_tool_names):
+            self._messages.append({
+                "role": "user",
+                "content": "Do not repeat a tool that already returned a result. Produce the final answer now from the successful tool evidence above, using its exact audit_tool_call_id values.",
+            })
+            response = self._request("/api/chat", {
+                "model": self.model,
+                "messages": self._messages,
+                "format": AgentFinalAnswer.model_json_schema(),
+                "stream": False,
+            })
+            message = response.get("message") or {}
+            self._messages.append(message)
+        if not message.get("tool_calls"):
+            try:
+                AgentFinalAnswer.model_validate_json(message.get("content") or "")
+            except Exception:
+                self._messages.append({
+                    "role": "user",
+                    "content": "Reformat your answer as the required JSON object. If successful tool data was used, set data_availability to retrieved and cite the exact audit_tool_call_id values from the tool results. Do not add markdown or commentary.",
+                })
+                response = self._request("/api/chat", {
+                    "model": self.model,
+                    "messages": self._messages,
+                    "format": AgentFinalAnswer.model_json_schema(),
+                    "stream": False,
+                })
+                message = response.get("message") or {}
+                self._messages.append(message)
         calls = []
         for raw_call in message.get("tool_calls") or []:
             function = raw_call.get("function") or {}

@@ -27,6 +27,9 @@ available through their existing configuration.
   definitions from the shared registry.
 - Tool requests return through the existing validation and audit loop.
 - Tool outputs return as Ollama `tool` messages for additional reasoning.
+- Repeated requests for an already executed tool are intercepted and converted
+  into final-answer synthesis; distinct follow-up tools remain available, with
+  a maximum of three Ollama retrieval rounds before forced synthesis.
 - Final output must satisfy the existing strict answer/evidence schema.
 - Status and provider diagnostics verify that Ollama is reachable and the
   configured model is installed.
