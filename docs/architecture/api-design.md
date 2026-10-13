@@ -119,3 +119,16 @@ Future routes may add an MCP transport and analysis execution.
 - API routes return stable identifiers and timestamps.
 - Local mode uses a mock current user until Supabase JWT verification is added.
 - OpenAPI is the source of truth for future MCP conversion.
+
+## NMR CSV imports
+
+`GET /api/v1/nmr/imports` publishes the supported CSV formats and their required
+and optional columns. `POST /api/v1/nmr/imports/{entity_type}` accepts a UTF-8
+CSV file for `residues`, `peaks`, `assignments`, or `chemical_shifts`.
+
+Imports default to `dry_run=true`. Preview and commit both validate Pydantic
+field constraints, parent-record access, spectrum dimensionality, ownership,
+and uniqueness before writing. If any row fails, the response reports its CSV
+line and field where available and writes no rows. A caller commits a clean
+preview with `dry_run=false`. Successful records are created through the same
+domain services as the individual CRUD routes.

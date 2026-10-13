@@ -163,6 +163,29 @@ class ChemicalShiftRead(ChemicalShiftCreate):
     id: str; created_at: datetime; updated_at: datetime
 
 
+class NMRImportError(BaseModel):
+    row: int = Field(ge=2)
+    field: Optional[str] = None
+    message: str
+
+
+class NMRImportResult(BaseModel):
+    entity_type: str
+    dry_run: bool
+    total_rows: int = Field(ge=0)
+    valid_rows: int = Field(ge=0)
+    imported_count: int = Field(ge=0)
+    imported_ids: list[str] = Field(default_factory=list)
+    errors: list[NMRImportError] = Field(default_factory=list)
+
+
+class NMRImportFormat(BaseModel):
+    entity_type: str
+    required_columns: list[str]
+    optional_columns: list[str] = Field(default_factory=list)
+    list_separator: Optional[str] = None
+
+
 class SpectrumComparisonRequest(NMRDomainBase):
     reference_spectrum_id: str = Field(min_length=1)
     comparison_spectrum_id: str = Field(min_length=1)

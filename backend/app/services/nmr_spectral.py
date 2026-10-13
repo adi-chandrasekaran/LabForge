@@ -72,7 +72,7 @@ def list_peaks(db: Session, user: User, spectrum_id: str) -> list[Peak]:
     return list(db.scalars(select(Peak).where(Peak.spectrum_id == spectrum_id).order_by(Peak.created_at)))
 
 
-def _validate_peak(db: Session, user: User, payload: PeakCreate) -> Spectrum:
+def validate_peak_create(db: Session, user: User, payload: PeakCreate) -> Spectrum:
     spectrum = get_spectrum(db, user, payload.spectrum_id); _owner(spectrum, user)
     if len(payload.positions_ppm) != len(spectrum.nuclei): raise HTTPException(422, "Peak position count must match spectrum dimensions")
     if payload.linewidths_hz and len(payload.linewidths_hz) != len(spectrum.nuclei): raise HTTPException(422, "Peak linewidth count must match spectrum dimensions")
@@ -80,12 +80,12 @@ def _validate_peak(db: Session, user: User, payload: PeakCreate) -> Spectrum:
 
 
 def create_peak(db: Session, user: User, payload: PeakCreate) -> Peak:
-    _validate_peak(db, user, payload); peak = Peak(id=_id("peak"), **payload.model_dump()); db.add(peak)
+    validate_peak_create(db, user, payload); peak = Peak(id=_id("peak"), **payload.model_dump()); db.add(peak)
     record_local_change(db, "nmr.peak.create"); db.commit(); db.refresh(peak); return peak
 
 
 def update_peak(db: Session, user: User, peak_id: str, payload: PeakCreate) -> Peak:
-    peak = get_peak(db, user, peak_id); _validate_peak(db, user, payload)
+    peak = get_peak(db, user, peak_id); validate_peak_create(db, user, payload)
     for key, value in payload.model_dump().items(): setattr(peak, key, value)
     record_local_change(db, "nmr.peak.update"); db.commit(); db.refresh(peak); return peak
 
@@ -110,17 +110,17 @@ def list_assignments(db: Session, user: User, peak_id: str) -> list[Assignment]:
     get_peak(db, user, peak_id); return list(db.scalars(select(Assignment).where(Assignment.peak_id == peak_id).order_by(Assignment.created_at)))
 
 
-def _validate_assignment(db: Session, user: User, payload: AssignmentCreate) -> None:
+def validate_assignment_create(db: Session, user: User, payload: AssignmentCreate) -> None:
     peak = get_peak(db, user, payload.peak_id); _owner(get_spectrum(db, user, peak.spectrum_id), user); nmr_domain.get_residue(db, user, payload.residue_id)
 
 
 def create_assignment(db: Session, user: User, payload: AssignmentCreate) -> Assignment:
-    _validate_assignment(db, user, payload); item = Assignment(id=_id("assignment"), **payload.model_dump()); db.add(item)
+    validate_assignment_create(db, user, payload); item = Assignment(id=_id("assignment"), **payload.model_dump()); db.add(item)
     record_local_change(db, "nmr.assignment.create"); db.commit(); db.refresh(item); return item
 
 
 def update_assignment(db: Session, user: User, assignment_id: str, payload: AssignmentCreate) -> Assignment:
-    item = get_assignment(db, user, assignment_id); _validate_assignment(db, user, payload)
+    item = get_assignment(db, user, assignment_id); validate_assignment_create(db, user, payload)
     for key, value in payload.model_dump().items(): setattr(item, key, value)
     record_local_change(db, "nmr.assignment.update"); db.commit(); db.refresh(item); return item
 
@@ -143,7 +143,7 @@ def list_shifts(db: Session, user: User, spectrum_id: Optional[str] = None, resi
     return list(db.scalars(query.order_by(ChemicalShift.residue_id, ChemicalShift.atom_name)))
 
 
-def _validate_shift(db: Session, user: User, payload: ChemicalShiftCreate, exclude_id: Optional[str] = None) -> None:
+def validate_shift_create(db: Session, user: User, payload: ChemicalShiftCreate, exclude_id: Optional[str] = None) -> None:
     spectrum = get_spectrum(db, user, payload.spectrum_id); _owner(spectrum, user); nmr_domain.get_residue(db, user, payload.residue_id)
     if payload.peak_id and get_peak(db, user, payload.peak_id).spectrum_id != spectrum.id: raise HTTPException(400, "Chemical-shift peak must belong to the same spectrum")
     duplicate = db.scalar(select(ChemicalShift).where(ChemicalShift.spectrum_id == payload.spectrum_id, ChemicalShift.residue_id == payload.residue_id, ChemicalShift.atom_name == payload.atom_name))
@@ -151,12 +151,12 @@ def _validate_shift(db: Session, user: User, payload: ChemicalShiftCreate, exclu
 
 
 def create_shift(db: Session, user: User, payload: ChemicalShiftCreate) -> ChemicalShift:
-    _validate_shift(db, user, payload); item = ChemicalShift(id=_id("shift"), **payload.model_dump()); db.add(item)
+    validate_shift_create(db, user, payload); item = ChemicalShift(id=_id("shift"), **payload.model_dump()); db.add(item)
     record_local_change(db, "nmr.chemical_shift.create"); db.commit(); db.refresh(item); return item
 
 
 def update_shift(db: Session, user: User, shift_id: str, payload: ChemicalShiftCreate) -> ChemicalShift:
-    item = get_shift(db, user, shift_id); _validate_shift(db, user, payload, item.id)
+    item = get_shift(db, user, shift_id); validate_shift_create(db, user, payload, item.id)
     for key, value in payload.model_dump().items(): setattr(item, key, value)
     record_local_change(db, "nmr.chemical_shift.update"); db.commit(); db.refresh(item); return item
 
