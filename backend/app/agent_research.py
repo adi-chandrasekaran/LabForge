@@ -407,10 +407,10 @@ class OllamaResearchAssistant:
             nested = json.loads(final.answer)
         except (TypeError, ValueError, json.JSONDecodeError):
             return True
-        return not (
-            isinstance(nested, dict)
-            and {"data_availability", "evidence_tool_call_ids"}.intersection(nested)
-        )
+        # JSON records belong in the evidence audit, never in the readable
+        # answer. Reject both response envelopes and raw record arrays so the
+        # deterministic, tool-specific presenter can summarize them.
+        return not isinstance(nested, (dict, list))
 
     def respond(self, input_items: list[dict[str, Any]], previous_response_id: Optional[str] = None) -> ProviderResponse:
         if previous_response_id is None:
