@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, CheckCircle2, Database, Download, FileSpreadsheet, ListTree, Upload, X } from "lucide-react";
+import { Activity, AlertTriangle, CheckCircle2, Database, Download, FileSpreadsheet, ListTree, Upload, X } from "lucide-react";
 import { Button } from "../components/ui/button";
 import ConfirmDialog from "../components/ConfirmDialog";
 import NMRDataExplorer from "../components/NMRDataExplorer";
+import NMRShiftAnalysis from "../components/NMRShiftAnalysis";
 import {
   fetchNMRImportFormats,
   uploadNMRImport,
@@ -18,7 +19,7 @@ function label(value: string) {
 
 export default function NMRDataPage() {
   const inputRef = useRef<HTMLInputElement>(null);
-  const [view, setView] = useState<"browse" | "import">("browse");
+  const [view, setView] = useState<"browse" | "analysis" | "import">("browse");
   const [formats, setFormats] = useState<NMRImportFormatRecord[]>([]);
   const [entityType, setEntityType] = useState("residues");
   const [file, setFile] = useState<File | null>(null);
@@ -95,10 +96,12 @@ export default function NMRDataPage() {
 
       <div className="mb-5 flex w-fit border border-border bg-card p-1">
         <button type="button" onClick={() => setView("browse")} className={`flex items-center gap-2 px-3 py-2 text-[9px] ${view === "browse" ? "bg-[#00c9a7]/10 text-[#00c9a7]" : "text-muted-foreground hover:text-foreground"}`}><ListTree className="h-3.5 w-3.5" />Browse records</button>
+        <button type="button" onClick={() => setView("analysis")} className={`flex items-center gap-2 px-3 py-2 text-[9px] ${view === "analysis" ? "bg-[#00c9a7]/10 text-[#00c9a7]" : "text-muted-foreground hover:text-foreground"}`}><Activity className="h-3.5 w-3.5" />Analyze shifts</button>
         <button type="button" onClick={() => setView("import")} className={`flex items-center gap-2 px-3 py-2 text-[9px] ${view === "import" ? "bg-[#00c9a7]/10 text-[#00c9a7]" : "text-muted-foreground hover:text-foreground"}`}><Upload className="h-3.5 w-3.5" />Import CSV</button>
       </div>
 
       {view === "browse" && <NMRDataExplorer />}
+      {view === "analysis" && <NMRShiftAnalysis />}
       {view === "import" && <>
       {error && <div className="mb-4 border border-red-400/25 bg-red-400/10 p-3 text-[10px] text-red-200">{error}</div>}
       <div className="mb-5 grid gap-2 sm:grid-cols-3">
