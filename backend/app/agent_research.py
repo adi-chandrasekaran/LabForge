@@ -359,6 +359,41 @@ class OllamaResearchAssistant:
         )
         return messages
 
+    def _deterministic_final_answer(self) -> str:
+        """Build a safe final response when a small local model ignores the JSON schema."""
+        successful: list[dict[str, Any]] = []
+        evidence_ids: list[str] = []
+        for message in self._messages:
+            if message.get("role") != "tool":
+                continue
+            try:
+                result = json.loads(message.get("content") or "{}")
+            except (TypeError, ValueError, json.JSONDecodeError):
+                continue
+            if not isinstance(result, dict) or result.get("ok") is not True:
+                continue
+            audit_id = result.get("audit_tool_call_id")
+            if isinstance(audit_id, str) and audit_id:
+                evidence_ids.append(audit_id)
+            successful.append({
+                "tool_name": result.get("tool_name") or message.get("tool_name"),
+                "data": result.get("data"),
+            })
+        if successful and evidence_ids:
+            answer = "Retrieved data from LabForge:\n" + json.dumps(successful, ensure_ascii=False, default=str)
+            final = AgentFinalAnswer(
+                answer=answer,
+                data_availability="retrieved",
+                evidence_tool_call_ids=evidence_ids,
+            )
+        else:
+            final = AgentFinalAnswer(
+                answer="The required data is unavailable because the local assistant could not produce a valid response.",
+                data_availability="unavailable",
+                evidence_tool_call_ids=[],
+            )
+        return final.model_dump_json()
+
     def respond(self, input_items: list[dict[str, Any]], previous_response_id: Optional[str] = None) -> ProviderResponse:
         if previous_response_id is None:
             self._messages = self._initial_messages(input_items)
@@ -421,6 +456,11 @@ class OllamaResearchAssistant:
                 })
                 message = response.get("message") or {}
                 self._messages.append(message)
+                try:
+                    AgentFinalAnswer.model_validate_json(message.get("content") or "")
+                except Exception:
+                    message = {"role": "assistant", "content": self._deterministic_final_answer()}
+                    self._messages.append(message)
         calls = []
         for raw_call in message.get("tool_calls") or []:
             function = raw_call.get("function") or {}
