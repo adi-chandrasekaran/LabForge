@@ -14,9 +14,11 @@ from backend.app.agent_research import (
     AgentFinalAnswer,
     AgentRunCreate,
     GeminiResearchAssistant,
+    OllamaResearchAssistant,
     OpenAIResponsesResearchAssistant,
     ProviderResponse,
     ProviderToolCall,
+    assistant_status,
     classify_provider_error,
     execute_run,
 )
@@ -152,6 +154,120 @@ def test_gemini_provider_maps_function_calls_and_results(monkeypatch: pytest.Mon
     assert second.id == "gemini-response-1"
     assert captured[0]["config"]["tools"][0]["function_declarations"]
     assert captured[1]["contents"][-1]["parts"][0]["function_response"]["name"] == "get_project"
+
+
+def test_ollama_provider_maps_tools_messages_and_results(monkeypatch: pytest.MonkeyPatch) -> None:
+    assistant = OllamaResearchAssistant(Settings(agent_provider="ollama", ollama_model="qwen3:4b"))
+    requests = []
+    responses = [
+        {"created_at": "response-1", "message": {"role": "assistant", "content": "", "tool_calls": [{"function": {"name": "get_project", "arguments": {"project_id": "project-anc2"}}}]}},
+        {"created_at": "response-2", "message": {"role": "assistant", "content": '{"answer":"ANC2 retrieved","data_availability":"retrieved","evidence_tool_call_ids":["call-1"]}'}},
+    ]
+    def fake_request(path, payload=None, method="POST"):
+        requests.append(copy.deepcopy((path, payload, method)))
+        return responses.pop(0)
+    monkeypatch.setattr(assistant, "_request", fake_request)
+
+    first = assistant.respond([{"role": "user", "content": "Find ANC2"}])
+    second = assistant.respond([{"type": "function_call_output", "name": "get_project", "output": '{"ok":true}'}], first.id)
+
+    assert assistant.configured is True
+    assert first.tool_calls[0].name == "get_project"
+    assert json.loads(first.tool_calls[0].arguments) == {"project_id": "project-anc2"}
+    assert second.output_text.startswith('{"answer"')
+    assert requests[0][1]["tools"][0]["function"]["parameters"]
+    assert requests[1][1]["messages"][-2] == {"role": "tool", "tool_name": "get_project", "content": '{"ok":true}'}
+    assert requests[1][1]["messages"][-1]["role"] == "user"
+
+
+def test_ollama_preflight_reports_model_install_state(monkeypatch: pytest.MonkeyPatch) -> None:
+    assistant = OllamaResearchAssistant(Settings(agent_provider="ollama", ollama_model="qwen3:4b"))
+    monkeypatch.setattr(assistant, "_request", lambda *args, **kwargs: {"models": [{"name": "qwen3:4b"}]})
+    assert assistant.preflight().ok is True
+    monkeypatch.setattr(assistant, "_request", lambda *args, **kwargs: {"models": []})
+    result = assistant.preflight()
+    assert result.ok is False
+    assert result.code == "model_unavailable"
+    assert "ollama pull qwen3:4b" in result.detail
+
+
+def test_ollama_status_uses_live_preflight(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(OllamaResearchAssistant, "_request", lambda *args, **kwargs: {"models": [{"name": "llama3.2:latest"}]})
+    result = assistant_status(Settings(agent_provider="ollama", ollama_model="llama3.2"))
+    assert result.available is True
+    assert result.provider == "ollama"
+    assert result.model == "llama3.2"
+
+
+def test_ollama_stops_duplicate_tool_loops_and_forces_final_schema(monkeypatch: pytest.MonkeyPatch) -> None:
+    assistant = OllamaResearchAssistant(Settings(agent_provider="ollama", ollama_model="llama3.2"))
+    requests = []
+    responses = [
+        {"created_at": "one", "message": {"role": "assistant", "content": "", "tool_calls": [{"function": {"name": "list_projects", "arguments": {}}}]}},
+        {"created_at": "two", "message": {"role": "assistant", "content": "", "tool_calls": [{"function": {"name": "list_projects", "arguments": {"project_id": "null"}}}]}},
+        {"created_at": "three", "message": {"role": "assistant", "content": '{"answer":"ANC2","data_availability":"retrieved","evidence_tool_call_ids":["audit-1"]}'}},
+    ]
+    def fake_request(path, payload=None, method="POST"):
+        requests.append(copy.deepcopy(payload))
+        return responses.pop(0)
+    monkeypatch.setattr(assistant, "_request", fake_request)
+
+    first = assistant.respond([{"role": "user", "content": "List projects"}])
+    second = assistant.respond([{"type": "function_call_output", "name": "list_projects", "output": '{"ok":true,"audit_tool_call_id":"audit-1"}'}], first.id)
+
+    assert second.tool_calls == []
+    assert AgentFinalAnswer.model_validate_json(second.output_text).evidence_tool_call_ids == ["audit-1"]
+    assert "tools" in requests[0] and "tools" in requests[1]
+    assert "tools" not in requests[2]
+    assert requests[2]["format"]["properties"]["answer"]
+
+
+def test_ollama_falls_back_to_successful_tool_data_after_invalid_repairs(monkeypatch: pytest.MonkeyPatch) -> None:
+    assistant = OllamaResearchAssistant(Settings(agent_provider="ollama", ollama_model="llama3.2"))
+    responses = [
+        {"created_at": "one", "message": {"role": "assistant", "content": "", "tool_calls": [{"function": {"name": "list_projects", "arguments": {}}}]}},
+        {"created_at": "two", "message": {"role": "assistant", "content": "Here are your projects."}},
+        {"created_at": "three", "message": {"role": "assistant", "content": "Still not JSON."}},
+    ]
+    monkeypatch.setattr(assistant, "_request", lambda *args, **kwargs: responses.pop(0))
+
+    first = assistant.respond([{"role": "user", "content": "List projects"}])
+    second = assistant.respond([{
+        "type": "function_call_output",
+        "name": "list_projects",
+        "output": '{"tool_name":"list_projects","ok":true,"data":[{"name":"ANC2"}],"audit_tool_call_id":"audit-1"}',
+    }], first.id)
+
+    answer = AgentFinalAnswer.model_validate_json(second.output_text)
+    assert answer.data_availability == "retrieved"
+    assert answer.evidence_tool_call_ids == ["audit-1"]
+    assert "ANC2" in answer.answer
+
+
+def test_ollama_rejects_nested_metadata_as_the_user_facing_answer(monkeypatch: pytest.MonkeyPatch) -> None:
+    assistant = OllamaResearchAssistant(Settings(agent_provider="ollama", ollama_model="llama3.2"))
+    nested_answer = json.dumps({
+        "answer": json.dumps({"data_availability": "retrieved", "evidence_tool_call_ids": ["audit-1"]}),
+        "data_availability": "retrieved",
+        "evidence_tool_call_ids": ["audit-1"],
+    })
+    responses = [
+        {"created_at": "one", "message": {"role": "assistant", "content": "", "tool_calls": [{"function": {"name": "list_projects", "arguments": {}}}]}},
+        {"created_at": "two", "message": {"role": "assistant", "content": nested_answer}},
+        {"created_at": "three", "message": {"role": "assistant", "content": nested_answer}},
+    ]
+    monkeypatch.setattr(assistant, "_request", lambda *args, **kwargs: responses.pop(0))
+
+    first = assistant.respond([{"role": "user", "content": "List projects"}])
+    second = assistant.respond([{
+        "type": "function_call_output",
+        "name": "list_projects",
+        "output": '{"tool_name":"list_projects","ok":true,"data":[{"name":"ANC2"}],"audit_tool_call_id":"audit-1"}',
+    }], first.id)
+
+    answer = AgentFinalAnswer.model_validate_json(second.output_text)
+    assert answer.answer.startswith("Retrieved data from LabForge:")
+    assert "ANC2" in answer.answer
 
 
 def test_conversation_and_empty_audit_history_are_owned(client: TestClient) -> None:
