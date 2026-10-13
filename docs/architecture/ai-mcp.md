@@ -96,9 +96,13 @@ The server reads provider keys only from its environment. OpenAI uses
 log, or frontend state exposes a key. `GET /api/v1/agent/status` returns
 `agent_unavailable` when the selected provider is not configured.
 
-The OpenAI Responses and Gemini provider adapters share one integration
-boundary. `NMR_LAB_AGENT_PROVIDER` selects `gemini` by default or `openai`
-when explicitly configured. Both generate their function catalog from PR 3's
+The OpenAI Responses, Gemini, and local Ollama provider adapters share one
+integration boundary. `NMR_LAB_AGENT_PROVIDER` selects `gemini` by default,
+`openai` for OpenAI, or `ollama` for a model running on the user's machine.
+Ollama defaults to `http://127.0.0.1:11434` and `llama3.2`; both values are
+configurable through `NMR_LAB_OLLAMA_BASE_URL` and `NMR_LAB_OLLAMA_MODEL`.
+Ollama requires no API key and sends no prompt or tool result to a hosted model.
+All providers generate their function catalog from PR 3's
 registry, so unavailable NMR tools and `create_note` remain excluded. The
 permanent assistant instruction requires tool evidence for every
 dataset-specific claim, prohibits invented experimental values, and requires a

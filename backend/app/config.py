@@ -34,6 +34,8 @@ class Settings(BaseModel):
     agent_model: str = "gpt-5.5"
     gemini_api_key: Optional[str] = None
     gemini_model: str = "gemini-2.5-flash"
+    ollama_base_url: str = "http://127.0.0.1:11434"
+    ollama_model: str = "llama3.2"
 
     @property
     def data_dir(self) -> Path:
@@ -88,4 +90,6 @@ def get_settings() -> Settings:
         agent_model=os.getenv("NMR_LAB_AGENT_MODEL", "gpt-5.5"),
         gemini_api_key=os.getenv("NMR_LAB_GEMINI_API_KEY"),
         gemini_model=os.getenv("NMR_LAB_GEMINI_MODEL", "gemini-2.5-flash"),
+        ollama_base_url=os.getenv("NMR_LAB_OLLAMA_BASE_URL", "http://127.0.0.1:11434").rstrip("/"),
+        ollama_model=os.getenv("NMR_LAB_OLLAMA_MODEL", "llama3.2"),
     )
