@@ -196,6 +196,28 @@ def guided_tool_names(user_message: str) -> set[str]:
     return selected
 
 
+def required_tool_sequence(user_message: str) -> list[str]:
+    """Return the evidence path that must finish before an NMR answer is final."""
+    query = user_message.casefold()
+    if "assignment" in query:
+        return ["list_spectra", "list_peaks", "get_peak_assignments"]
+    if "perturbation" in query or "csp" in query:
+        sequence = ["list_spectra"]
+        if "compare" in query or "comparison" in query:
+            sequence.append("compare_spectra")
+        sequence.append("calculate_chemical_shift_perturbation")
+        return sequence
+    if "compare" in query or "comparison" in query:
+        return ["list_spectra", "compare_spectra"]
+    if "shift" in query or "ppm" in query:
+        return ["list_proteins", "find_residue", "get_residue_shifts"]
+    if "peak" in query:
+        return ["list_spectra", "list_peaks"]
+    if "spectrum" in query or "spectra" in query or "hsqc" in query:
+        return ["list_spectra"]
+    return []
+
+
 class OpenAIResponsesResearchAssistant:
     """OpenAI Responses implementation of the research-assistant provider."""
     provider = "openai"
@@ -359,6 +381,7 @@ class OllamaResearchAssistant:
         self._messages: list[dict[str, Any]] = []
         self._tool_rounds = 0
         self._requested_tool_signatures: set[str] = set()
+        self._requested_tool_names: set[str] = set()
         self._user_request = ""
 
     @property
@@ -466,6 +489,7 @@ class OllamaResearchAssistant:
             self._messages = self._initial_messages(input_items)
             self._tool_rounds = 0
             self._requested_tool_signatures = set()
+            self._requested_tool_names = set()
             self._user_request = next((str(item.get("content", "")) for item in reversed(input_items) if item.get("role") == "user"), "")
         else:
             self._tool_rounds += 1
@@ -491,6 +515,37 @@ class OllamaResearchAssistant:
         message = response.get("message") or {}
         self._messages.append(message)
         requested_signatures = {self._tool_signature(call) for call in message.get("tool_calls") or []}
+        requested_names = {
+            (call.get("function") or {}).get("name", "")
+            for call in message.get("tool_calls") or []
+        }
+        required_sequence = required_tool_sequence(self._user_request)
+        pending_required = [name for name in required_sequence if name not in self._requested_tool_names]
+        if message.get("tool_calls") and required_sequence and not pending_required:
+            # The requested NMR evidence path is complete. Ignore speculative
+            # auxiliary calls and synthesize only from executed evidence.
+            message = {"role": "assistant", "content": self._deterministic_final_answer()}
+            requested_signatures = set()
+            requested_names = set()
+        elif not message.get("tool_calls") and pending_required and self._tool_rounds < 3:
+            next_tool = pending_required[0]
+            self._messages.append({
+                "role": "user",
+                "content": f"The requested NMR task is not complete. Call {next_tool} now, using exact IDs from the successful tool results. Do not answer yet.",
+            })
+            response = self._request("/api/chat", {
+                "model": self.model,
+                "messages": self._messages,
+                "tools": self.function_definitions(guided_tool_names(self._user_request)),
+                "stream": False,
+            })
+            message = response.get("message") or {}
+            self._messages.append(message)
+            requested_signatures = {self._tool_signature(call) for call in message.get("tool_calls") or []}
+            requested_names = {
+                (call.get("function") or {}).get("name", "")
+                for call in message.get("tool_calls") or []
+            }
         if requested_signatures and requested_signatures.issubset(self._requested_tool_signatures):
             self._messages.append({
                 "role": "user",
@@ -507,8 +562,12 @@ class OllamaResearchAssistant:
             requested_signatures = set()
         else:
             self._requested_tool_signatures.update(requested_signatures)
+            self._requested_tool_names.update(requested_names)
         if not message.get("tool_calls"):
-            if not self._is_usable_final_answer(message.get("content") or ""):
+            if any(item.get("role") == "tool" for item in self._messages):
+                message = {"role": "assistant", "content": self._deterministic_final_answer()}
+                self._messages.append(message)
+            elif not self._is_usable_final_answer(message.get("content") or ""):
                 self._messages.append({
                     "role": "user",
                     "content": "Reformat your answer as the required JSON object. If successful tool data was used, set data_availability to retrieved and cite the exact audit_tool_call_id values from the tool results. Do not add markdown or commentary.",

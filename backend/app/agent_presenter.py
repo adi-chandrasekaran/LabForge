@@ -89,5 +89,7 @@ def _format_records(tool_name: str, data: Any) -> str:
 
 def format_tool_evidence(results: list[dict[str, Any]]) -> str:
     """Summarize only data present in successful, audited tool results."""
-    sections = [_format_records(result.get("tool_name", ""), result.get("data")) for result in results]
+    nonempty = [result for result in results if result.get("data") not in (None, [], {})]
+    visible = nonempty or results
+    sections = [_format_records(result.get("tool_name", ""), result.get("data")) for result in visible]
     return "\n\n".join(section for section in sections if section)

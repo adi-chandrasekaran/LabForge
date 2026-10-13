@@ -22,6 +22,7 @@ from backend.app.agent_research import (
     classify_provider_error,
     execute_run,
     guided_tool_names,
+    required_tool_sequence,
 )
 
 
@@ -231,6 +232,37 @@ def test_ollama_stops_duplicate_tool_loops_and_forces_final_schema(monkeypatch: 
 ])
 def test_guided_tool_names_include_nmr_discovery_chains(message: str, expected: set[str]) -> None:
     assert expected.issubset(guided_tool_names(message))
+
+
+def test_required_tool_sequence_reaches_requested_nmr_operation() -> None:
+    assert required_tool_sequence("What shifts are stored for M1?") == ["list_proteins", "find_residue", "get_residue_shifts"]
+    assert required_tool_sequence("Show assignments for peak M1") == ["list_spectra", "list_peaks", "get_peak_assignments"]
+    assert required_tool_sequence("Compare spectra and calculate CSP") == ["list_spectra", "compare_spectra", "calculate_chemical_shift_perturbation"]
+
+
+def test_ollama_continues_until_residue_shift_tool_is_called(monkeypatch: pytest.MonkeyPatch) -> None:
+    assistant = OllamaResearchAssistant(Settings(agent_provider="ollama", ollama_model="llama3.2"))
+    responses = [
+        {"created_at": "one", "message": {"role": "assistant", "content": "", "tool_calls": [{"function": {"name": "list_proteins", "arguments": {}}}]}},
+        {"created_at": "two", "message": {"role": "assistant", "content": "I found ANC2."}},
+        {"created_at": "three", "message": {"role": "assistant", "content": "", "tool_calls": [{"function": {"name": "find_residue", "arguments": {"protein_id": "protein-1", "query": "M1"}}}]}},
+        {"created_at": "four", "message": {"role": "assistant", "content": "M1 exists."}},
+        {"created_at": "five", "message": {"role": "assistant", "content": "", "tool_calls": [{"function": {"name": "get_residue_shifts", "arguments": {"residue_id": "residue-1"}}}]}},
+        {"created_at": "six", "message": {"role": "assistant", "content": '{"answer":"8.12 ppm","data_availability":"retrieved","evidence_tool_call_ids":["audit-shift"]}'}},
+    ]
+    monkeypatch.setattr(assistant, "_request", lambda *args, **kwargs: responses.pop(0))
+
+    first = assistant.respond([{"role": "user", "content": "What shifts are stored for residue M1?"}])
+    second = assistant.respond([{"type": "function_call_output", "name": "list_proteins", "output": '{"tool_name":"list_proteins","ok":true,"data":[{"id":"protein-1","name":"ANC2"}],"audit_tool_call_id":"audit-protein"}'}], first.id)
+    third = assistant.respond([{"type": "function_call_output", "name": "find_residue", "output": '{"tool_name":"find_residue","ok":true,"data":[{"id":"residue-1","sequence_number":1,"residue_name":"MET","one_letter_code":"M"}],"audit_tool_call_id":"audit-residue"}'}], second.id)
+    final = assistant.respond([{"type": "function_call_output", "name": "get_residue_shifts", "output": '{"tool_name":"get_residue_shifts","ok":true,"data":[{"atom_name":"H","nucleus":"1H","value_ppm":8.12}],"audit_tool_call_id":"audit-shift"}'}], third.id)
+
+    assert first.tool_calls[0].name == "list_proteins"
+    assert second.tool_calls[0].name == "find_residue"
+    assert third.tool_calls[0].name == "get_residue_shifts"
+    answer = AgentFinalAnswer.model_validate_json(final.output_text)
+    assert "8.12 ppm" in answer.answer
+    assert set(answer.evidence_tool_call_ids) == {"audit-protein", "audit-residue", "audit-shift"}
 
 
 def test_ollama_allows_same_tool_with_different_arguments(monkeypatch: pytest.MonkeyPatch) -> None:
