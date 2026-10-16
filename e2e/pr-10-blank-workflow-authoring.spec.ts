@@ -19,7 +19,7 @@ test('blank experimental workflow can be authored with detailed steps and branch
   expect(createProject.ok()).toBeTruthy()
 
   await page.goto('/workflow')
-  await page.getByRole('button', { name: projectName }).click()
+  await page.locator('[data-testid^="workflow-type-"]').filter({ hasText: projectName }).click()
   await page.getByRole('button', { name: 'CREATE BLANK WORKFLOW' }).click()
 
   await expect(page.getByTestId('add-step-modal')).toBeVisible()

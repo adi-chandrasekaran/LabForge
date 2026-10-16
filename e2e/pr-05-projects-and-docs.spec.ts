@@ -8,7 +8,7 @@ test('PR 5 demo loads persisted home/profile/projects/docs data', async ({ page 
   await page.goto('/')
   await expect(page.getByText(/Good (morning|afternoon|evening),/)).toBeVisible()
   await expect(page.getByText('RECENT PROJECTS')).toBeVisible()
-  await expect(page.getByText('RECENT ACTIVITY')).toBeVisible()
+  await expect(page.getByText('RECENT ACTIVITY', { exact: true })).toBeVisible()
 
   await page.goto('/profile')
   await expect(page.getByRole('main').getByText('Chen, Y.')).toBeVisible()

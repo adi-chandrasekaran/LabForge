@@ -21,6 +21,6 @@ test('PR 6 demo shows local save state and placeholder sync status', async ({ pa
   await expect(page.locator('aside').getByText('SAVED LOCALLY', { exact: true })).toBeVisible()
   await expect(page.getByText(/pending/i)).toBeVisible()
 
-  await page.getByRole('button', { name: 'SYNC' }).click()
+  await page.getByRole('button', { name: 'SYNC', exact: true }).click()
   await expect(page.getByText(/Hosted sync is not configured in local mode|Hosted sync is not implemented yet/)).toBeVisible()
 })

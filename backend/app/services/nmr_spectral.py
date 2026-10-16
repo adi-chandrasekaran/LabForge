@@ -85,7 +85,7 @@ def create_peak(db: Session, user: User, payload: PeakCreate) -> Peak:
 
 
 def update_peak(db: Session, user: User, peak_id: str, payload: PeakCreate) -> Peak:
-    peak = get_peak(db, user, peak_id); validate_peak_create(db, user, payload)
+    peak = get_peak(db, user, peak_id); _owner(get_spectrum(db, user, peak.spectrum_id), user); validate_peak_create(db, user, payload)
     for key, value in payload.model_dump().items(): setattr(peak, key, value)
     record_local_change(db, "nmr.peak.update"); db.commit(); db.refresh(peak); return peak
 
@@ -120,7 +120,7 @@ def create_assignment(db: Session, user: User, payload: AssignmentCreate) -> Ass
 
 
 def update_assignment(db: Session, user: User, assignment_id: str, payload: AssignmentCreate) -> Assignment:
-    item = get_assignment(db, user, assignment_id); validate_assignment_create(db, user, payload)
+    item = get_assignment(db, user, assignment_id); original_peak = get_peak(db, user, item.peak_id); _owner(get_spectrum(db, user, original_peak.spectrum_id), user); validate_assignment_create(db, user, payload)
     for key, value in payload.model_dump().items(): setattr(item, key, value)
     record_local_change(db, "nmr.assignment.update"); db.commit(); db.refresh(item); return item
 
@@ -156,7 +156,7 @@ def create_shift(db: Session, user: User, payload: ChemicalShiftCreate) -> Chemi
 
 
 def update_shift(db: Session, user: User, shift_id: str, payload: ChemicalShiftCreate) -> ChemicalShift:
-    item = get_shift(db, user, shift_id); validate_shift_create(db, user, payload, item.id)
+    item = get_shift(db, user, shift_id); _owner(get_spectrum(db, user, item.spectrum_id), user); validate_shift_create(db, user, payload, item.id)
     for key, value in payload.model_dump().items(): setattr(item, key, value)
     record_local_change(db, "nmr.chemical_shift.update"); db.commit(); db.refresh(item); return item
 

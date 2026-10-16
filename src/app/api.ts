@@ -4,6 +4,13 @@ const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined) || "h
 const API_ROOT = API_BASE.replace(/\/api\/v1$/, "");
 const SYNC_REFRESH_EVENT = "nmr-lab-sync-refresh";
 
+export class ApiRequestError extends Error {
+  constructor(message: string, public readonly status: number) {
+    super(message);
+    this.name = "ApiRequestError";
+  }
+}
+
 export interface WorkflowDraftRecord {
   id: string;
   operation: string;
@@ -931,7 +938,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     } catch {
       // Keep a non-JSON response body as the best available diagnostic.
     }
-    throw new Error(message || `Request failed: ${response.status}`);
+    throw new ApiRequestError(message || `Request failed: ${response.status}`, response.status);
   }
   if (response.status === 204) {
     if (typeof window !== "undefined" && method !== "GET") {

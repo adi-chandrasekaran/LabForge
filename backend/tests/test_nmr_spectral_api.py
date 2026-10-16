@@ -1,4 +1,6 @@
 from fastapi.testclient import TestClient
+from backend.app import database
+from backend.app.models import Spectrum, User
 
 
 def _foundation(client: TestClient) -> tuple[str, str]:
@@ -40,3 +42,25 @@ def test_spectrum_delete_cascades_spectral_records(client: TestClient) -> None:
     client.post("/api/v1/nmr/chemical-shifts",json={"spectrum_id":spectrum["id"],"residue_id":residue_id,"peak_id":peak["id"],"atom_name":"H","nucleus":"1H","value_ppm":8.0})
     assert client.delete(f'/api/v1/nmr/spectra/{spectrum["id"]}').status_code==204
     assert client.get(f'/api/v1/nmr/peaks/{peak["id"]}').status_code==404
+
+
+def test_spectral_updates_require_ownership_of_the_original_record(client: TestClient) -> None:
+    sample_id, residue_id = _foundation(client)
+    original = client.post("/api/v1/nmr/spectra", json={"name": "Other owner's spectrum", "sample_id": sample_id, "nuclei": ["1H"]}).json()
+    destination = client.post("/api/v1/nmr/spectra", json={"name": "Current owner's spectrum", "sample_id": sample_id, "nuclei": ["1H"]}).json()
+    original_peak = client.post("/api/v1/nmr/peaks", json={"spectrum_id": original["id"], "positions_ppm": [8.0]}).json()
+    destination_peak = client.post("/api/v1/nmr/peaks", json={"spectrum_id": destination["id"], "positions_ppm": [8.1]}).json()
+    assignment = client.post("/api/v1/nmr/assignments", json={"peak_id": original_peak["id"], "residue_id": residue_id, "atom_names": ["H"]}).json()
+    shift = client.post("/api/v1/nmr/chemical-shifts", json={"spectrum_id": original["id"], "residue_id": residue_id, "peak_id": original_peak["id"], "atom_name": "H", "nucleus": "1H", "value_ppm": 8.0}).json()
+
+    db = database.SessionLocal()
+    try:
+        db.add(User(id="same-lab-other", email="same-lab-other@nmr.local", display_name="Other owner", role="student", lab_id="local-lab"))
+        db.get(Spectrum, original["id"]).owner_id = "same-lab-other"
+        db.commit()
+    finally:
+        db.close()
+
+    assert client.put(f'/api/v1/nmr/peaks/{original_peak["id"]}', json={"spectrum_id": destination["id"], "positions_ppm": [8.2]}).status_code == 403
+    assert client.put(f'/api/v1/nmr/assignments/{assignment["id"]}', json={"peak_id": destination_peak["id"], "residue_id": residue_id, "atom_names": ["H"]}).status_code == 403
+    assert client.put(f'/api/v1/nmr/chemical-shifts/{shift["id"]}', json={"spectrum_id": destination["id"], "residue_id": residue_id, "peak_id": destination_peak["id"], "atom_name": "H", "nucleus": "1H", "value_ppm": 8.2}).status_code == 403
