@@ -912,7 +912,17 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     },
   });
   if (!response.ok) {
-    const message = await response.text();
+    const raw = await response.text();
+    let message = raw;
+    try {
+      const payload = JSON.parse(raw) as { message?: string; detail?: string | Array<{ msg?: string }>; code?: string };
+      if (typeof payload.message === "string") message = payload.message;
+      else if (typeof payload.detail === "string") message = payload.detail;
+      else if (Array.isArray(payload.detail)) message = payload.detail.map(item => item.msg).filter(Boolean).join(" ");
+      if (payload.code && message) message = `${message} (${payload.code.replaceAll("_", " ")})`;
+    } catch {
+      // Keep a non-JSON response body as the best available diagnostic.
+    }
     throw new Error(message || `Request failed: ${response.status}`);
   }
   if (response.status === 204) {
@@ -952,6 +962,11 @@ export async function fetchAgentStatus(): Promise<AgentStatusRecord> { return re
 export async function runAgentProviderDiagnostic(): Promise<AgentProviderDiagnosticRecord> { return request<AgentProviderDiagnosticRecord>("/agent/provider-diagnostic", { method: "POST" }); }
 export async function createAgentConversation(title: string): Promise<{ id: string }> { return request<{ id: string }>("/agent/conversations", { method: "POST", body: JSON.stringify({ title }) }); }
 export async function runAgentConversation(conversationId: string, message: string): Promise<AgentRunRecord> { return toAgentRun(await request<ApiAgentRun>(`/agent/conversations/${conversationId}/runs`, { method: "POST", body: JSON.stringify({ message }) })); }
+export async function fetchAgentRuns(conversationId: string): Promise<AgentRunRecord[]> {
+  const runs = await request<ApiAgentRun[]>(`/agent/conversations/${conversationId}/runs`);
+  const detailed = await Promise.all(runs.map(run => request<ApiAgentRun>(`/agent/conversations/${conversationId}/runs/${run.id}`)));
+  return detailed.map(toAgentRun).reverse();
+}
 
 type ApiNMRImportFormat = { entity_type: string; required_columns: string[]; optional_columns: string[]; list_separator?: string | null };
 type ApiNMRImportResult = { entity_type: string; dry_run: boolean; total_rows: number; valid_rows: number; imported_count: number; imported_ids: string[]; errors: Array<{ row: number; field?: string | null; message: string }> };
