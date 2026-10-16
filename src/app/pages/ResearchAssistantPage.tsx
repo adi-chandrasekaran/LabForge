@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Bot, Plus, Send, ShieldCheck, Stethoscope, Wrench } from "lucide-react";
+import { AlertTriangle, Bot, CheckCircle2, Plus, Send, ShieldCheck, Stethoscope, Wrench } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Textarea } from "../components/ui/textarea";
 import {
@@ -14,6 +14,14 @@ import {
 } from "../api";
 
 const CONVERSATION_STORAGE_KEY = "nmr-lab-agent-conversation-id";
+
+const diagnosticLabels: Record<AgentProviderDiagnosticRecord["state"], string> = {
+  ready: "Provider ready",
+  unavailable: "Ollama unavailable",
+  configuration_error: "Provider configuration required",
+  model_missing: "Ollama model missing",
+  provider_error: "Provider issue",
+};
 
 export default function ResearchAssistantPage() {
   const [status, setStatus] = useState<AgentStatusRecord | null>(null);
@@ -107,10 +115,15 @@ export default function ResearchAssistantPage() {
       </div>
 
       {status && (
-        <div className="border border-border bg-card p-3 mb-4 flex items-center justify-between gap-3">
-          <div className="text-[10px] text-muted-foreground">
-            {diagnostic?.detail ?? status.detail}
-            {diagnostic?.code && <span className="block mt-1 text-amber-300 uppercase tracking-wider">{diagnostic.code.replaceAll("_", " ")}</span>}
+        <div className={`border bg-card p-3 mb-4 flex items-center justify-between gap-3 ${diagnostic ? diagnostic.ok ? "border-emerald-400/30" : "border-amber-400/30" : "border-border"}`}>
+          <div className="flex items-start gap-2 text-[10px] text-muted-foreground">
+            {diagnostic && (diagnostic.ok ? <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-300" /> : <AlertTriangle className="w-4 h-4 shrink-0 text-amber-300" />)}
+            <div>
+              {diagnostic && <div className={`font-semibold mb-1 ${diagnostic.ok ? "text-emerald-300" : "text-amber-300"}`}>{diagnosticLabels[diagnostic.state]}</div>}
+              <div>{diagnostic?.detail ?? status.detail}</div>
+              {diagnostic?.action && <div className="mt-1 text-foreground/80">Next step: {diagnostic.action}</div>}
+              {diagnostic?.code && <span className="block mt-1 uppercase tracking-wider">Diagnostic code: {diagnostic.code.replaceAll("_", " ")}</span>}
+            </div>
           </div>
           <Button variant="outline" size="sm" onClick={() => void diagnose()} disabled={diagnosing}>
             <Stethoscope className="w-3 h-3" />{diagnosing ? "Checking…" : "Test provider connection"}

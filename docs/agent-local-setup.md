@@ -31,7 +31,7 @@ Terminal 2 — frontend:
 npm run dev
 ```
 
-Open `http://localhost:5173/assistant`. The badge should show `ollama · ready`. Use **Test provider connection** for a live model check before asking a scientific question.
+Open `http://localhost:5173/assistant`. The badge should show `ollama · ready`. Use **Test provider connection** for a live model check before asking a scientific question. A successful check says **Provider ready** only after the configured model produces a real response. Failures identify whether Ollama is unavailable, the model is missing, configuration is required, or the provider returned another error, and show the next corrective action.
 
 ## Verify from the terminal
 
@@ -93,4 +93,3 @@ Then restart the LabForge backend and use **Test provider connection** again.
 ### Assistant returned an unavailable answer
 
 Expand **Evidence and tool audit**. An unavailable answer is correct when the requested record is not stored or a required tool returned no match. Add or import the missing NMR record, then ask again.
-

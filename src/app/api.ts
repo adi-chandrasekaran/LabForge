@@ -18,7 +18,15 @@ export interface WorkflowDraftRecord {
 export interface AgentToolCallRecord { id: string; sequence: number; toolName: string; arguments: Record<string, unknown>; result?: Record<string, unknown> | null; status: string; errorMessage?: string | null; }
 export interface AgentRunRecord { id: string; userRequest: string; status: string; finalAnswer?: string | null; dataAvailability?: string | null; failureCode?: string | null; failureDetail?: string | null; toolCalls: AgentToolCallRecord[]; }
 export interface AgentStatusRecord { available: boolean; provider: string; model: string; detail: string; }
-export interface AgentProviderDiagnosticRecord { ok: boolean; provider: string; model: string; code?: string | null; detail: string; }
+export interface AgentProviderDiagnosticRecord {
+  ok: boolean;
+  provider: string;
+  model: string;
+  code?: string | null;
+  detail: string;
+  state: "ready" | "unavailable" | "configuration_error" | "model_missing" | "provider_error";
+  action?: string | null;
+}
 export interface NMRImportFormatRecord { entityType: string; requiredColumns: string[]; optionalColumns: string[]; listSeparator?: string | null; }
 export interface NMRImportErrorRecord { row: number; field?: string | null; message: string; }
 export interface NMRImportResultRecord { entityType: string; dryRun: boolean; totalRows: number; validRows: number; importedCount: number; importedIds: string[]; errors: NMRImportErrorRecord[]; }

@@ -105,6 +105,8 @@ class AgentProviderDiagnosticRead(BaseModel):
     model: str
     code: Optional[str] = None
     detail: str
+    state: Literal["ready", "unavailable", "configuration_error", "model_missing", "provider_error"]
+    action: Optional[str] = None
 
 
 class AgentExecutionErrorRead(BaseModel):
@@ -358,7 +360,7 @@ class GeminiResearchAssistant:
 
     def preflight(self) -> AgentProviderDiagnosticRead:
         if not self.configured:
-            return AgentProviderDiagnosticRead(ok=False, provider=self.provider, model=self.model, code="agent_unavailable", detail="Add a server-side Gemini API key before testing the provider.")
+            return AgentProviderDiagnosticRead(ok=False, provider=self.provider, model=self.model, code="agent_unavailable", detail="Gemini is not configured.", state="configuration_error", action="Set NMR_LAB_GEMINI_API_KEY in the backend terminal, then restart the backend.")
         from google import genai
         try:
             genai.Client(api_key=self._settings.gemini_api_key).models.generate_content(
@@ -367,8 +369,8 @@ class GeminiResearchAssistant:
         except Exception as error:
             code, detail = classify_provider_error(error)
             logger.warning("agent_provider_preflight_failed provider=gemini code=%s error_type=%s", code, type(error).__name__)
-            return AgentProviderDiagnosticRead(ok=False, provider=self.provider, model=self.model, code=code, detail=detail)
-        return AgentProviderDiagnosticRead(ok=True, provider=self.provider, model=self.model, detail="Gemini accepted a minimal server-side preflight request.")
+            return AgentProviderDiagnosticRead(ok=False, provider=self.provider, model=self.model, code=code, detail=detail, state="provider_error", action="Check the Gemini key, project permissions, quota, and configured model, then retry.")
+        return AgentProviderDiagnosticRead(ok=True, provider=self.provider, model=self.model, detail="Gemini accepted a minimal server-side preflight request.", state="ready")
 
 
 class OllamaResearchAssistant:
@@ -407,22 +409,36 @@ class OllamaResearchAssistant:
                 pass
         return f"{function.get('name', '')}:{json.dumps(arguments, sort_keys=True, default=str)}"
 
-    def _request(self, path: str, payload: Optional[dict[str, Any]] = None, method: str = "POST") -> dict[str, Any]:
+    def _request(
+        self,
+        path: str,
+        payload: Optional[dict[str, Any]] = None,
+        method: str = "POST",
+        timeout: int = 60,
+    ) -> dict[str, Any]:
         body = json.dumps(payload).encode() if payload is not None else None
         request = urllib_request.Request(
             f"{self._settings.ollama_base_url}{path}", data=body, method=method,
             headers={"Content-Type": "application/json"},
         )
         try:
-            with urllib_request.urlopen(request, timeout=60) as response:
+            with urllib_request.urlopen(request, timeout=timeout) as response:
                 return json.loads(response.read().decode())
         except urllib_error.HTTPError as error:
-            detail = error.read().decode(errors="replace")
             logger.warning("agent_provider_failure provider=ollama status=%s", error.code)
             raise AgentExecutionException(502, "provider_failed", f"Ollama rejected the request (HTTP {error.code}). Check that model '{self.model}' is installed.") from error
-        except (urllib_error.URLError, TimeoutError, OSError) as error:
+        except TimeoutError as error:
+            logger.warning("agent_provider_failure provider=ollama error_type=timeout")
+            raise AgentExecutionException(504, "provider_timeout", "Ollama did not respond before the diagnostic timed out.") from error
+        except urllib_error.URLError as error:
+            if isinstance(error.reason, TimeoutError) or "timed out" in str(error.reason).casefold():
+                logger.warning("agent_provider_failure provider=ollama error_type=timeout")
+                raise AgentExecutionException(504, "provider_timeout", "Ollama did not respond before the diagnostic timed out.") from error
             logger.warning("agent_provider_failure provider=ollama error_type=%s", type(error).__name__)
-            raise AgentExecutionException(503, "agent_unavailable", "Ollama is not reachable. Start Ollama locally and try again.") from error
+            raise AgentExecutionException(503, "ollama_unavailable", "Ollama is not reachable on the configured local address.") from error
+        except OSError as error:
+            logger.warning("agent_provider_failure provider=ollama error_type=%s", type(error).__name__)
+            raise AgentExecutionException(503, "ollama_unavailable", "Ollama is not reachable on the configured local address.") from error
         except (ValueError, json.JSONDecodeError) as error:
             raise AgentExecutionException(502, "provider_failed", "Ollama returned an invalid response.") from error
 
@@ -607,15 +623,82 @@ class OllamaResearchAssistant:
             output_text=message.get("content") or "",
         )
 
-    def preflight(self) -> AgentProviderDiagnosticRead:
+    def installation_preflight(self) -> AgentProviderDiagnosticRead:
+        """Check the local service and model without loading the model for generation."""
         try:
-            response = self._request("/api/tags", method="GET")
+            response = self._request("/api/tags", method="GET", timeout=5)
         except AgentExecutionException as error:
-            return AgentProviderDiagnosticRead(ok=False, provider=self.provider, model=self.model, code=error.code, detail=error.message)
+            return AgentProviderDiagnosticRead(
+                ok=False,
+                provider=self.provider,
+                model=self.model,
+                code=error.code,
+                detail=error.message,
+                state="unavailable" if error.code == "ollama_unavailable" else "provider_error",
+                action="Open Ollama, then test the connection again." if error.code == "ollama_unavailable" else "Wait for the local model to finish loading, then retry.",
+            )
         installed = {item.get("name", "").split(":latest")[0] for item in response.get("models", [])}
         if self.model not in installed and self.model.split(":latest")[0] not in installed:
-            return AgentProviderDiagnosticRead(ok=False, provider=self.provider, model=self.model, code="model_unavailable", detail=f"Ollama is running, but model '{self.model}' is not installed. Run: ollama pull {self.model}")
-        return AgentProviderDiagnosticRead(ok=True, provider=self.provider, model=self.model, detail="Ollama is running and the configured local model is installed.")
+            return AgentProviderDiagnosticRead(
+                ok=False,
+                provider=self.provider,
+                model=self.model,
+                code="model_unavailable",
+                detail=f"Ollama is running, but model '{self.model}' is not installed.",
+                state="model_missing",
+                action=f"Run: ollama pull {self.model}",
+            )
+        return AgentProviderDiagnosticRead(
+            ok=True,
+            provider=self.provider,
+            model=self.model,
+            detail=f"Ollama is running and model '{self.model}' is installed.",
+            state="ready",
+        )
+
+    def preflight(self) -> AgentProviderDiagnosticRead:
+        installation = self.installation_preflight()
+        if not installation.ok:
+            return installation
+        try:
+            probe = self._request(
+                "/api/chat",
+                payload={
+                    "model": self.model,
+                    "messages": [{"role": "user", "content": "Reply only READY."}],
+                    "stream": False,
+                    "options": {"temperature": 0, "num_predict": 4},
+                },
+                timeout=30,
+            )
+        except AgentExecutionException as error:
+            return AgentProviderDiagnosticRead(
+                ok=False,
+                provider=self.provider,
+                model=self.model,
+                code=error.code,
+                detail="Ollama is running and the model is installed, but the model test failed.",
+                state="provider_error",
+                action=error.message,
+            )
+        content = (probe.get("message") or {}).get("content")
+        if not isinstance(content, str) or not content.strip():
+            return AgentProviderDiagnosticRead(
+                ok=False,
+                provider=self.provider,
+                model=self.model,
+                code="invalid_provider_response",
+                detail="Ollama responded, but the configured model returned no usable text.",
+                state="provider_error",
+                action="Restart Ollama or select another installed chat model, then retry.",
+            )
+        return AgentProviderDiagnosticRead(
+            ok=True,
+            provider=self.provider,
+            model=self.model,
+            detail=f"Ollama and model '{self.model}' completed a live response test.",
+            state="ready",
+        )
 
 
 def classify_provider_error(error: Exception) -> tuple[str, str]:
@@ -652,7 +735,7 @@ def assistant_status(settings: Optional[Settings] = None) -> AgentStatusRead:
         return AgentStatusRead(available=False, code="agent_unavailable", provider=provider.provider, model=provider.model,
             detail="The NMR research assistant is unavailable because its server-side provider key is not configured.")
     if isinstance(provider, OllamaResearchAssistant):
-        diagnostic = provider.preflight()
+        diagnostic = provider.installation_preflight()
         return AgentStatusRead(available=diagnostic.ok, code=diagnostic.code, provider=provider.provider, model=provider.model, detail=diagnostic.detail)
     return AgentStatusRead(available=True, provider=provider.provider, model=provider.model,
         detail="The selected NMR research assistant provider is configured.")
@@ -665,8 +748,8 @@ def provider_diagnostic(settings: Optional[Settings] = None) -> AgentProviderDia
     if isinstance(provider, OllamaResearchAssistant):
         return provider.preflight()
     if not provider.configured:
-        return AgentProviderDiagnosticRead(ok=False, provider=provider.provider, model=provider.model, code="agent_unavailable", detail="Add the provider key before testing the connection.")
-    return AgentProviderDiagnosticRead(ok=False, provider=provider.provider, model=provider.model, code="diagnostic_not_supported", detail="Connection diagnostics are not implemented for this provider.")
+        return AgentProviderDiagnosticRead(ok=False, provider=provider.provider, model=provider.model, code="agent_unavailable", detail="The selected provider is not configured.", state="configuration_error", action="Configure the provider in the backend environment and restart the backend.")
+    return AgentProviderDiagnosticRead(ok=False, provider=provider.provider, model=provider.model, code="diagnostic_not_supported", detail="Connection diagnostics are not implemented for this provider.", state="configuration_error", action="Select Ollama or Gemini to use the live connection diagnostic.")
 
 
 def get_research_assistant(settings: Optional[Settings] = None) -> NMRResearchAssistant:
