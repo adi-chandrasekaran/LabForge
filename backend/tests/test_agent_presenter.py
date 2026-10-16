@@ -42,3 +42,13 @@ def test_formats_analysis_summaries_and_empty_results() -> None:
 
     assert comparison == "Spectrum comparison: 6 matched shifts, 1 reference-only, and 2 comparison-only."
     assert empty == "No matching records were found."
+
+
+def test_omits_empty_auxiliary_results_when_evidence_exists() -> None:
+    answer = format_tool_evidence([
+        {"tool_name": "list_spectra", "data": [{"name": "ANC2 reference", "experiment_type": "HSQC", "nuclei": ["1H", "15N"], "peak_count": 1}]},
+        {"tool_name": "list_samples", "data": []},
+    ])
+
+    assert "ANC2 reference" in answer
+    assert "No matching records" not in answer
