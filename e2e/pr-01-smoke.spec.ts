@@ -1,7 +1,8 @@
 import { expect, test } from '@playwright/test'
 
 test('PR 1 smoke demo: app shell and backend health are reachable', async ({ page, request }) => {
-  const health = await request.get('http://127.0.0.1:8017/api/v1/health')
+  const backendPort = process.env.PLAYWRIGHT_BACKEND_PORT ?? '8017'
+  const health = await request.get(`http://127.0.0.1:${backendPort}/api/v1/health`)
   expect(health.ok()).toBeTruthy()
   await expect(await health.json()).toEqual({
     status: 'ok',

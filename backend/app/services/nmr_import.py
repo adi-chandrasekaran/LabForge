@@ -171,30 +171,29 @@ def import_csv(
     if not rows:
         raise HTTPException(422, "CSV import requires at least one data row")
 
-    parsed: list[BaseModel] = []
+    parsed: list[tuple[int, BaseModel]] = []
     errors: list[NMRImportError] = []
     for row_number, row in enumerate(rows, start=2):
         try:
-            parsed.append(definition.model.model_validate(definition.transform(row)))
+            parsed.append((row_number, definition.model.model_validate(definition.transform(row))))
         except (ValidationError, ValueError) as exc:
             errors.append(_validation_error(row_number, exc))
 
-    if not errors:
-        seen: set[tuple] = set()
-        for offset, payload in enumerate(parsed, start=2):
-            try:
-                definition.validate(db, user, payload)
-                if entity_type == "residues":
-                    key = (payload.protein_id, payload.sequence_number, payload.insertion_code)
-                elif entity_type == "chemical_shifts":
-                    key = (payload.spectrum_id, payload.residue_id, payload.atom_name)
-                else:
-                    key = ()
-                if key and key in seen:
-                    raise ValueError("Duplicate row in this import")
-                seen.add(key)
-            except (HTTPException, ValueError) as exc:
-                errors.append(_validation_error(offset, exc))
+    seen: set[tuple] = set()
+    for row_number, payload in parsed:
+        try:
+            definition.validate(db, user, payload)
+            if entity_type == "residues":
+                key = (payload.protein_id, payload.sequence_number, payload.insertion_code)
+            elif entity_type == "chemical_shifts":
+                key = (payload.spectrum_id, payload.residue_id, payload.atom_name)
+            else:
+                key = ()
+            if key and key in seen:
+                raise ValueError("Duplicate row in this import")
+            seen.add(key)
+        except (HTTPException, ValueError) as exc:
+            errors.append(_validation_error(row_number, exc))
 
     if errors or dry_run:
         return NMRImportResult(
@@ -207,7 +206,7 @@ def import_csv(
         )
 
     imported_ids: list[str] = []
-    for payload in parsed:
+    for _, payload in parsed:
         imported_ids.append(definition.create(db, user, payload).id)
     return NMRImportResult(
         entity_type=entity_type,

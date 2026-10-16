@@ -8,6 +8,7 @@ import {
   fetchAgentStatus,
   runAgentConversation,
   runAgentProviderDiagnostic,
+  ApiRequestError,
   type AgentProviderDiagnosticRecord,
   type AgentRunRecord,
   type AgentStatusRecord,
@@ -33,9 +34,10 @@ export default function ResearchAssistantPage() {
   const [busy, setBusy] = useState(false);
   const [restoring, setRestoring] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const providerAvailable = diagnostic?.ok ?? status?.available ?? false;
 
   useEffect(() => {
-    void fetchAgentStatus().then(setStatus).catch((caught) => setError(caught.message));
+    void fetchAgentStatus().then(setStatus).catch((caught) => setError(caught instanceof Error ? caught.message : "Unable to check the provider status."));
 
     const savedId = window.localStorage.getItem(CONVERSATION_STORAGE_KEY);
     if (!savedId) {
@@ -46,9 +48,13 @@ export default function ResearchAssistantPage() {
     setConversationId(savedId);
     void fetchAgentRuns(savedId)
       .then(setRuns)
-      .catch(() => {
-        window.localStorage.removeItem(CONVERSATION_STORAGE_KEY);
-        setConversationId(null);
+      .catch((caught) => {
+        if (caught instanceof ApiRequestError && caught.status === 404) {
+          window.localStorage.removeItem(CONVERSATION_STORAGE_KEY);
+          setConversationId(null);
+          return;
+        }
+        setError(caught instanceof Error ? `The saved conversation could not be restored: ${caught.message}` : "The saved conversation could not be restored.");
       })
       .finally(() => setRestoring(false));
   }, []);
@@ -84,9 +90,12 @@ export default function ResearchAssistantPage() {
 
   const diagnose = async () => {
     setDiagnosing(true);
+    setDiagnostic(null);
     setError(null);
     try {
-      setDiagnostic(await runAgentProviderDiagnostic());
+      const result = await runAgentProviderDiagnostic();
+      setDiagnostic(result);
+      setStatus({ available: result.ok, provider: result.provider, model: result.model, detail: result.detail });
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "The provider diagnostic could not run.");
     } finally {
@@ -108,8 +117,8 @@ export default function ResearchAssistantPage() {
               <Plus className="w-3 h-3" />New conversation
             </Button>
           )}
-          <div className={`text-[9px] h-fit border px-3 py-2 ${status?.available ? "border-emerald-400/30 text-emerald-300" : "border-amber-400/30 text-amber-300"}`}>
-            {status ? `${status.provider} · ${status.available ? "ready" : "unavailable"}` : "checking provider"}
+          <div className={`text-[9px] h-fit border px-3 py-2 ${providerAvailable ? "border-emerald-400/30 text-emerald-300" : "border-amber-400/30 text-amber-300"}`}>
+            {status ? `${status.provider} · ${providerAvailable ? "ready" : "unavailable"}` : "checking provider"}
           </div>
         </div>
       </div>
@@ -176,9 +185,9 @@ export default function ResearchAssistantPage() {
         <Textarea value={message} onChange={(event) => setMessage(event.target.value)} disabled={busy || restoring} placeholder="Ask a question about your NMR data, projects, workflows, experiments, or notes…" className="min-h-24 text-xs" />
         <div className="mt-2 flex items-center justify-between gap-3">
           <span className="text-[9px] text-muted-foreground">
-            {busy ? "Retrieving evidence and running tools…" : status?.available ? "Ready for an evidence-backed question." : "Configure a provider to ask questions."}
+            {busy ? "Retrieving evidence and running tools…" : providerAvailable ? "Ready for an evidence-backed question." : "Configure a provider to ask questions."}
           </span>
-          <Button onClick={() => void send()} disabled={!status?.available || busy || restoring || !message.trim()}>
+          <Button onClick={() => void send()} disabled={!providerAvailable || busy || restoring || !message.trim()}>
             <Send className="w-3 h-3" />{busy ? "Researching…" : "Ask assistant"}
           </Button>
         </div>

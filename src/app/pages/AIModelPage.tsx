@@ -7,6 +7,7 @@ import {
   type AISettingsRecord,
   type AnalysisModuleRecord,
   type MCPManifestRecord,
+  type MCPToolRecord,
 } from "../api";
 
 const panelCls = "border border-border rounded-sm bg-card";
@@ -61,7 +62,15 @@ export default function AIModelPage() {
     };
   }, []);
 
-  const toolPreview = useMemo(() => manifest?.tools.slice(0, 6) ?? [], [manifest]);
+  const toolPreview = useMemo(() => {
+    if (!manifest) return [];
+    const representativePaths = ["/api/v1/ai/settings", "/api/v1/analysis/modules", "/api/v1/agent/tools"];
+    const representatives = representativePaths
+      .map(path => manifest.tools.find(tool => tool.path === path))
+      .filter((tool): tool is MCPToolRecord => Boolean(tool));
+    const remaining = manifest.tools.filter(tool => !representatives.some(item => item.method === tool.method && item.path === tool.path));
+    return [...representatives, ...remaining].slice(0, 8);
+  }, [manifest]);
 
   return (
     <div className="min-h-full bg-background px-7 py-7" style={{ fontFamily: "'JetBrains Mono', monospace" }}>

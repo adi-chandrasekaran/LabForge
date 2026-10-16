@@ -1,20 +1,21 @@
 import { expect, test } from '@playwright/test'
 
 test('four workflow functionality fixes demo', async ({ page, request }) => {
+  const backendPort = process.env.PLAYWRIGHT_BACKEND_PORT ?? '8017'
   const stamp = Date.now()
   const projectName = `Playwright Project ${stamp}`
   const projectCode = `PW-${stamp}`
   const standardName = `Playwright Standard ${stamp}`
   const standardizedSnapshotName = `RPC10 Snapshot ${stamp}`
 
-  const projects = await request.get('http://127.0.0.1:8017/api/v1/projects')
+  const projects = await request.get(`http://127.0.0.1:${backendPort}/api/v1/projects`)
   expect(projects.ok()).toBeTruthy()
   const projectTitles = (await projects.json()).map((project: { title: string }) => project.title)
-  expect(projectTitles.sort()).toEqual([
+  expect(projectTitles).toEqual(expect.arrayContaining([
     'ANC2 Protein Purification',
     'CCL20 Transformation And Culture',
     'RPC10 Purification Process And Troubleshooting',
-  ].sort())
+  ]))
 
   await page.goto('/projects')
   await expect(page.getByText('ANC2 Protein Purification')).toBeVisible()

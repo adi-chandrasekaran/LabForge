@@ -89,6 +89,21 @@ def test_import_reports_rows_and_writes_nothing_when_validation_fails(client: Te
     assert client.get(f"/api/v1/nmr/residues?protein_id={protein_id}").json() == []
 
 
+def test_import_preserves_source_row_numbers_after_an_earlier_parse_error(client: TestClient) -> None:
+    malformed_then_missing_parent = (
+        "protein_id,sequence_number,residue_name,one_letter_code\n"
+        "missing-protein,not-a-number,MET,M\n"
+        "missing-protein,2,ALA,A\n"
+    )
+
+    result = _upload(client, "residues", malformed_then_missing_parent, dry_run=True)
+
+    assert result.status_code == 200
+    assert result.json()["valid_rows"] == 0
+    assert [error["row"] for error in result.json()["errors"]] == [2, 3]
+    assert result.json()["errors"][1]["message"] == "Protein not found"
+
+
 def test_import_rejects_unsupported_empty_and_oversized_files(client: TestClient) -> None:
     formats = client.get("/api/v1/nmr/imports")
     assert formats.status_code == 200

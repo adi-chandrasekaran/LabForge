@@ -9,6 +9,9 @@ const skipWebServer = process.env.PLAYWRIGHT_SKIP_WEBSERVER === '1'
 
 export default defineConfig({
   testDir: './e2e',
+  // The local app uses one mutable SQLite database. Parallel files can race
+  // during seed initialization and make otherwise independent demos flaky.
+  workers: 1,
   timeout: 30_000,
   expect: {
     timeout: 10_000,

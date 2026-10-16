@@ -39,6 +39,7 @@ export default function NMRDataPage() {
   const canImport = Boolean(preview && preview.errors.length === 0 && preview.validRows > 0 && file);
 
   function resetSelection(nextFile: File | null) {
+    if (!nextFile && inputRef.current) inputRef.current.value = "";
     setFile(nextFile);
     setPreview(null);
     setImported(null);
@@ -95,15 +96,15 @@ export default function NMRDataPage() {
       </div>
 
       <div className="mb-5 flex w-fit border border-border bg-card p-1">
-        <button type="button" onClick={() => setView("browse")} className={`flex items-center gap-2 px-3 py-2 text-[9px] ${view === "browse" ? "bg-[#00c9a7]/10 text-[#00c9a7]" : "text-muted-foreground hover:text-foreground"}`}><ListTree className="h-3.5 w-3.5" />Browse records</button>
-        <button type="button" onClick={() => setView("analysis")} className={`flex items-center gap-2 px-3 py-2 text-[9px] ${view === "analysis" ? "bg-[#00c9a7]/10 text-[#00c9a7]" : "text-muted-foreground hover:text-foreground"}`}><Activity className="h-3.5 w-3.5" />Analyze shifts</button>
-        <button type="button" onClick={() => setView("import")} className={`flex items-center gap-2 px-3 py-2 text-[9px] ${view === "import" ? "bg-[#00c9a7]/10 text-[#00c9a7]" : "text-muted-foreground hover:text-foreground"}`}><Upload className="h-3.5 w-3.5" />Import CSV</button>
+        <button type="button" aria-pressed={view === "browse"} onClick={() => setView("browse")} className={`flex items-center gap-2 px-3 py-2 text-[9px] ${view === "browse" ? "bg-[#00c9a7]/10 text-[#00c9a7]" : "text-muted-foreground hover:text-foreground"}`}><ListTree className="h-3.5 w-3.5" />Browse records</button>
+        <button type="button" aria-pressed={view === "analysis"} onClick={() => setView("analysis")} className={`flex items-center gap-2 px-3 py-2 text-[9px] ${view === "analysis" ? "bg-[#00c9a7]/10 text-[#00c9a7]" : "text-muted-foreground hover:text-foreground"}`}><Activity className="h-3.5 w-3.5" />Analyze shifts</button>
+        <button type="button" aria-pressed={view === "import"} onClick={() => setView("import")} className={`flex items-center gap-2 px-3 py-2 text-[9px] ${view === "import" ? "bg-[#00c9a7]/10 text-[#00c9a7]" : "text-muted-foreground hover:text-foreground"}`}><Upload className="h-3.5 w-3.5" />Import CSV</button>
       </div>
 
       {view === "browse" && <NMRDataExplorer />}
       {view === "analysis" && <NMRShiftAnalysis />}
       {view === "import" && <>
-      {error && <div className="mb-4 border border-red-400/25 bg-red-400/10 p-3 text-[10px] text-red-200">{error}</div>}
+      {error && <div role="alert" className="mb-4 border border-red-400/25 bg-red-400/10 p-3 text-[10px] text-red-200">{error}</div>}
       <div className="mb-5 grid gap-2 sm:grid-cols-3">
         {["1 · Choose data", "2 · Preview validation", "3 · Confirm import"].map((step, index) => <div key={step} className={`${panel} px-3 py-2 text-[9px] ${index === 0 || preview ? "text-[#00c9a7]" : "text-muted-foreground"}`}>{step}</div>)}
       </div>
