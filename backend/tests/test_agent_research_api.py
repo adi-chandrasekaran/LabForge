@@ -8,6 +8,7 @@ from sqlalchemy import select
 import json
 import copy
 from types import SimpleNamespace
+from urllib import error as urllib_error
 
 from backend.app.agent_research import (
     AgentExecutionException,
@@ -185,13 +186,66 @@ def test_ollama_provider_maps_tools_messages_and_results(monkeypatch: pytest.Mon
 
 def test_ollama_preflight_reports_model_install_state(monkeypatch: pytest.MonkeyPatch) -> None:
     assistant = OllamaResearchAssistant(Settings(agent_provider="ollama", ollama_model="qwen3:4b"))
-    monkeypatch.setattr(assistant, "_request", lambda *args, **kwargs: {"models": [{"name": "qwen3:4b"}]})
-    assert assistant.preflight().ok is True
+    requests = []
+    def ready_request(path, payload=None, method="POST", timeout=60):
+        requests.append((path, method, timeout))
+        if path == "/api/tags":
+            return {"models": [{"name": "qwen3:4b"}]}
+        return {"message": {"content": "READY"}}
+    monkeypatch.setattr(assistant, "_request", ready_request)
+    ready = assistant.preflight()
+    assert ready.ok is True
+    assert ready.state == "ready"
+    assert requests == [("/api/tags", "GET", 5), ("/api/chat", "POST", 30)]
     monkeypatch.setattr(assistant, "_request", lambda *args, **kwargs: {"models": []})
     result = assistant.preflight()
     assert result.ok is False
     assert result.code == "model_unavailable"
-    assert "ollama pull qwen3:4b" in result.detail
+    assert result.state == "model_missing"
+    assert "ollama pull qwen3:4b" in result.action
+
+
+@pytest.mark.parametrize(("code", "expected_state"), [
+    ("ollama_unavailable", "unavailable"),
+    ("provider_timeout", "provider_error"),
+])
+def test_ollama_preflight_explains_connection_failures(
+    monkeypatch: pytest.MonkeyPatch, code: str, expected_state: str,
+) -> None:
+    assistant = OllamaResearchAssistant(Settings(agent_provider="ollama", ollama_model="llama3.2"))
+    def failed_request(*args, **kwargs):
+        raise AgentExecutionException(503, code, "diagnostic failure")
+    monkeypatch.setattr(assistant, "_request", failed_request)
+
+    result = assistant.preflight()
+
+    assert result.ok is False
+    assert result.code == code
+    assert result.state == expected_state
+    assert result.action
+
+
+def test_ollama_preflight_rejects_empty_model_response(monkeypatch: pytest.MonkeyPatch) -> None:
+    assistant = OllamaResearchAssistant(Settings(agent_provider="ollama", ollama_model="llama3.2"))
+    monkeypatch.setattr(assistant, "_request", lambda path, **kwargs: {"models": [{"name": "llama3.2"}]} if path == "/api/tags" else {"message": {"content": ""}})
+
+    result = assistant.preflight()
+
+    assert result.ok is False
+    assert result.code == "invalid_provider_response"
+    assert result.state == "provider_error"
+
+
+def test_ollama_request_classifies_wrapped_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    assistant = OllamaResearchAssistant(Settings(agent_provider="ollama", ollama_model="llama3.2"))
+    def timeout(*args, **kwargs):
+        raise urllib_error.URLError(TimeoutError("timed out"))
+    monkeypatch.setattr("backend.app.agent_research.urllib_request.urlopen", timeout)
+
+    with pytest.raises(AgentExecutionException) as raised:
+        assistant._request("/api/tags", method="GET", timeout=1)
+
+    assert raised.value.code == "provider_timeout"
 
 
 def test_ollama_status_uses_live_preflight(monkeypatch: pytest.MonkeyPatch) -> None:
