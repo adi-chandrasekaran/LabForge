@@ -132,6 +132,20 @@ answer.
 
 ## Frontend Surface
 
+The research assistant at `/assistant` persists the active conversation ID in
+the browser and restores its durable backend run history after refresh. Run
+details are fetched individually so the ordered evidence and tool audit remains
+available. Starting a new conversation clears only the active browser selection;
+it does not delete the audit records retained by the backend.
+
+Provider and run failures are rendered as readable messages, while active runs
+identify that evidence retrieval and tool execution are in progress. Browser
+integration tests mock the provider-facing API boundary so UI reliability does
+not depend on paid credentials or a locally running model. See
+`docs/agent-local-setup.md` for the supported no-cost Ollama workflow.
+
+## AI Model Placeholder Surface
+
 `/ai-model` now loads backend placeholder data and renders:
 
 - AI settings summary
